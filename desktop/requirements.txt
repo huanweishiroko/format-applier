@@ -1,0 +1,16 @@
+# Word 格式处理 · 桌面外壳依赖（Phase 2 起）
+# 安装：.venv\Scripts\python.exe -m pip install -r desktop\requirements.txt
+
+# --- 界面 ---
+customtkinter>=5.2        # 界面框架（本机实装 6.0.0，默认 blue 主题）
+tkinterdnd2>=0.4.2        # 文件拖放（本机实装 0.6.3）
+pillow>=10                # 图标/截图（customtkinter 也依赖它；本机实装 12.3.0）
+darkdetect>=0.8           # customtkinter 的"跟随系统主题"依赖
+
+# --- 解析 ---
+python-docx>=1.1          # docx_extractor 需要（Phase 1 起）
+python-dotenv>=1.0        # llm_parser 读 .env
+openai>=1.40              # llm_parser 的 LLM 回退通道
+
+# 说明：tkinterdnd2 与 customtkinter 的兼容点见 desktop/app.py 顶部注释
+# （CTk 建根窗口后手工调 TkinterDnD._require(root) 即可）。

@@ -1,0 +1,53 @@
+# ===========================================================================
+# word-format-applier —— 仓库忽略规则
+# ===========================================================================
+
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- 虚拟环境 / 构建产物 --------------------------------------------------
+.venv/
+venv/
+build/
+dist/
+desktop/build/
+desktop/dist/
+
+# --- 备份与临时目录 -------------------------------------------------------
+desktop.bak_*/
+word-format-applier.fullbak_*/
+wfa-gui-*/
+
+# --- 密钥与本地配置（绝对不要提交）---------------------------------------
+.env
+.env.local
+desktop/.env
+desktop/config.json
+output/
+
+# --- 测试 / 冒烟产物 ------------------------------------------------------
+samples/*_formatted.docx
+samples/*_formatted.report.json
+samples/cli-out*
+samples/smoke-out*
+samples/*.report.json
+samples/测试输出*
+samples/markdown残留样例_*.docx
+samples/markdown残留样例_*.report.json
+
+# --- 预设解析缓存（可再生）-----------------------------------------------
+presets/.cache/
+
+# --- ACL 抢修扫描快照（大文件；只保留 *.ps1 脚本）------------------------
+_acl-recovery/*.json
+_acl-recovery/*.jsonl
+_acl-recovery/*.acl.txt
+_acl-recovery/*.log
+_acl-recovery/*.txt
+
+# --- 会话记录 / 编辑器 ----------------------------------------------------
+sessions/
+.vscode/
+.idea/
