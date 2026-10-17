@@ -123,8 +123,30 @@ def _source_from_selection(file_path: str, pasted: str) -> Tuple[str, str]:
 # --------------------------------------------------------------------------- #
 
 
-def _to_dsl(kind: str, payload: str, log: Callable[[str], None]) -> Tuple[str, str, int]:
-    """把输入转成 DSL。返回 (dsl, 来源说明, 本次 token 数)。失败抛 llm_parser 的异常。"""
+def _ui_conf(app, llm_parser):
+    """用设置页**内存里的**三项组装请求配置（不回读磁盘）。
+
+    三项都没填时返回 ``None``，交给 ``llm_parser.load_config()`` 回落到
+    config.json / 老版 .env（保持老用户行为）。
+    """
+    settings = getattr(app, "settings", None)
+    if settings is None:
+        return None
+    raw = (getattr(settings, "api_base_url", ""),
+           getattr(settings, "api_key", ""),
+           getattr(settings, "api_model", ""))
+    cleaned = [llm_parser.clean_value(v) for v in raw]
+    if not any(cleaned):
+        return None
+    return llm_parser.config_from_values(*cleaned, source="设置页输入")
+
+
+def _to_dsl(kind: str, payload: str, log: Callable[[str], None],
+            conf=None) -> Tuple[str, str, int]:
+    """把输入转成 DSL。返回 (dsl, 来源说明, 本次 token 数)。失败抛 llm_parser 的异常。
+
+    ``conf`` 为设置页输入框组装好的配置；为 ``None`` 时由 llm_parser 自行回读磁盘。
+    """
     txt_parser, docx_extractor, llm_parser = _parser_modules()
 
     if kind == "txt":
@@ -133,7 +155,7 @@ def _to_dsl(kind: str, payload: str, log: Callable[[str], None]) -> Tuple[str, s
             log(f"上传：{Path(payload).name} 已是 DSL，跳过 AI 调用")
             return parsed.dsl_body(), f"本地判定为 DSL（编码 {parsed.encoding}，未调用 AI）", 0
         log(f"上传：{Path(payload).name} 判定为自然语言 → 调 LLM 转 DSL")
-        result = llm_parser.natural_language_to_dsl(parsed.text)
+        result = llm_parser.natural_language_to_dsl(parsed.text, cfg=conf)
         return (result.dsl,
                 f"自然语言 → AI 转换（{result.model}，{result.attempts} 次尝试）",
                 result.total_tokens)
@@ -141,13 +163,13 @@ def _to_dsl(kind: str, payload: str, log: Callable[[str], None]) -> Tuple[str, s
     if kind == "docx":
         log(f"上传：{Path(payload).name} 取样式指纹 → 调 LLM 归纳规则")
         fingerprint = docx_extractor.extract_fingerprint(payload)
-        result = llm_parser.fingerprint_to_dsl(fingerprint.to_text())
+        result = llm_parser.fingerprint_to_dsl(fingerprint.to_text(), cfg=conf)
         return (result.dsl,
                 f"Word 样式指纹 → AI 归纳（{result.model}，{result.attempts} 次尝试）",
                 result.total_tokens)
 
     log("上传：粘贴的自然语言 → 调 LLM 转 DSL")
-    result = llm_parser.natural_language_to_dsl(payload)
+    result = llm_parser.natural_language_to_dsl(payload, cfg=conf)
     return (result.dsl,
             f"自然语言 → AI 转换（{result.model}，{result.attempts} 次尝试）",
             result.total_tokens)
@@ -347,7 +369,11 @@ def open_upload_dialog(master) -> Optional[UploadResult]:
     status("正在解析格式要求…")
     log(f"上传格式要求：kind={kind} payload={payload if kind != 'text' else payload[:40] + '…'}")
     try:
-        dsl, note, tokens = _to_dsl(kind, payload, log)
+        # 优先用设置页输入框里的三项（内存），这样「框里有值」就能直接发请求，
+        # 不依赖 config.json 是否写得进去、也不会被旧的 .env 覆盖。
+        _, _, llm_parser = _parser_modules()
+        conf = _ui_conf(app, llm_parser)
+        dsl, note, tokens = _to_dsl(kind, payload, log, conf=conf)
     except Exception as exc:  # noqa: BLE001 - 统一转成可读提示
         _, _, llm_parser = _parser_modules()
         if isinstance(exc, getattr(llm_parser, "LlmConfigError", ())) or "缺少 LLM 配置" in str(exc):

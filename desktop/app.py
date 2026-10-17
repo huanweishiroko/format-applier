@@ -231,6 +231,9 @@ class FormatApp(ctk.CTk):
         self.current_key: str = ""
         self.dnd_available = False
         self._legacy_checked = False
+        #: 最近一次 save_settings() 的真实失败原因/落点（给设置页展示具体错误）
+        self.last_save_error: str = ""
+        self.last_save_path = cfg.CONFIG_PATH
 
         self.settings = cfg.load_settings()
         # 输出目录落实：config.json 里没有（首次启动）→ 用户文档目录并落盘
@@ -708,12 +711,20 @@ class FormatApp(ctk.CTk):
         self.status(f"主题已切换为「{theme}」")
 
     def save_settings(self) -> bool:
-        """写 config.json；失败时只提示、不抛异常（返回是否成功）。"""
-        if not cfg.save_settings(self.settings):
-            where = cfg.display_path(cfg.CONFIG_PATH)
-            self.log(f"配置保存失败（不可写）：{where}")
-            self.status(f"配置保存失败：{where}")
+        """写 config.json；失败时弹窗由调用方决定，这里只记录真实原因。
+
+        ``last_save_error`` / ``last_save_path`` 供界面展示：不再是笼统的
+        “不可写”，而是带 WinError / errno / 路径的具体原因。
+        """
+        ok, target, error = cfg.save_settings_ex(self.settings)
+        self.last_save_path = target
+        self.last_save_error = error
+        if not ok:
+            self.log(f"配置保存失败：{error}")
+            self.status(f"配置保存失败：{cfg.display_path(target)}")
             return False
+        if target != cfg.CONFIG_PATH:
+            self.log(f"主位置不可写，配置已改存到 {cfg.display_path(target)}")
         return True
 
     # ------------------------------------------------------------------ #

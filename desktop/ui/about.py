@@ -88,7 +88,7 @@ class AboutPage(ctk.CTkFrame):
             ("程序目录", cfg.APP_DIR),
             ("内置预设", cfg.PRESETS_DIR),
             ("用户数据", cfg.user_data_dir()),
-            ("用户配置", cfg.CONFIG_PATH),
+            ("用户配置", cfg.active_config_path()),
             ("API 配置", _env_source()),
             ("用户预设", _user_presets_dir()),
             ("输出目录", getattr(app.settings, "output_dir", "") or cfg.default_output_dir()),

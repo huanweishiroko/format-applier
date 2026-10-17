@@ -84,7 +84,7 @@ class SettingsPage(ctk.CTkFrame):
         ctk.CTkLabel(head, text="设置", font=th.font(22, "bold"), anchor="w").grid(
             row=0, column=0, sticky="w"
         )
-        th.hint(head, f"改动即时生效，并写入 {cfg.display_path(cfg.CONFIG_PATH)}").grid(
+        th.hint(head, f"改动即时生效，并写入 {cfg.display_path(cfg.active_config_path())}").grid(
             row=1, column=0, sticky="w", pady=(2, 0)
         )
 
@@ -404,25 +404,67 @@ class SettingsPage(ctk.CTkFrame):
         """三个输入框此刻的内容（去掉首尾空白）。"""
         return {key: (var.get() or "").strip() for key, var in self.api_vars.items()}
 
-    def _save_api(self, announce: bool = True) -> bool:
-        """把三项写进 ``%APPDATA%\\Taofu\\config.json``；缺项时不写。"""
+    def _save_api(self, announce: bool = True) -> str:
+        """把三项写进 ``%APPDATA%\\Taofu\\config.json``。
+
+        返回三种状态，**不要再混成一个 bool**（以前正因如此，「没填」和「写不进盘」
+        被当成同一件事，界面明明 ✅ 却提示「三项没填齐」）：
+
+        * ``"missing"``    —— 三项没填齐，没写盘；
+        * ``"unwritable"`` —— 填齐了但 config.json 不可写（只读/占用/权限），没落盘；
+        * ``"ok"``         —— 已落盘。
+        """
         values = self._current_api()
         empty = [label for key, label in cfg.API_FIELDS if not values.get(key)]
         if empty:
             self.api_state.configure(text="还差这几项：" + "、".join(empty))
             if announce:
                 self.app.status("API 配置未保存：请先填完三项")
-            return False
+            return "missing"
 
         self.app.set_api_config(values["api_base_url"], values["api_key"],
                                 values["api_model"])
-        ok = self.app.save_settings()
-        self.api_state.configure(
-            text="已保存 · 来源：设置页保存的配置" if ok else "保存失败：配置文件不可写")
+        if not self.app.save_settings():
+            # 真实原因（WinError / errno / 路径）由 app.save_settings 记下，原样展示，
+            # 不再只说一句“不可写”。同时内存里的三项已经生效，本次测试照样能用。
+            error = getattr(self.app, "last_save_error", "") or "原因未知"
+            target = getattr(self.app, "last_save_path", cfg.CONFIG_PATH)
+            where = cfg.display_path(target)
+            self.api_state.configure(text=f"未写入 {where}")
+            self.app.log(f"API 配置保存失败：{error}")
+            if announce:
+                self.app.status("API 配置保存失败：写入被拒绝")
+                dlg.error(
+                    self.app,
+                    f"保存失败：写不进 {where}",
+                    detail=(
+                        f"{error}\n\n"
+                        "排查顺序：\n"
+                        f"1) 打开 {where} 所在文件夹，右键 → 属性，取消「只读」；\n"
+                        "2) 检查杀毒软件（火绒 / 360 等）是否拦截了本程序写文件，"
+                        "把它加入信任区；\n"
+                        "3) 仍不行就用「以管理员身份运行」再试。\n\n"
+                        "注意：刚填的三项已经留在内存里，现在点「测试 API 连接」"
+                        "可以正常用；只是重启软件后需要重填一次。"
+                    ),
+                )
+            return "unwritable"
+
+        saved_to = getattr(self.app, "last_save_path", cfg.CONFIG_PATH)
+        if saved_to != cfg.CONFIG_PATH:
+            # 主落点被锁，配置自动改存到了别的落点：如实告诉用户存哪了。
+            self.api_state.configure(
+                text=f"已保存到 {cfg.display_path(saved_to)}（主位置不可写，已自动改存）")
+            if announce:
+                self.app.status("API 配置已保存（改存到备用位置）")
+            self.app.log(f"API 配置已保存到备用位置：{cfg.display_path(saved_to)}")
+            return "ok"
+
+        self.api_state.configure(text="已保存 · 来源：设置页保存的配置")
         if announce:
-            self.app.status("API 配置已保存" if ok else "API 配置保存失败")
-            self.app.log("API 配置已保存（本机配置文件）" if ok else "API 配置保存失败")
-        return ok
+            self.app.status("API 配置已保存")
+            self.app.log("API 配置已保存（本机配置文件）")
+        return "ok"
 
     def _pick_output(self) -> None:
         path = filedialog.askdirectory(
@@ -525,24 +567,48 @@ class SettingsPage(ctk.CTkFrame):
         )
 
     def _test_api(self) -> None:
-        """先保存当前三项，再真发一次短请求（只回复 OK），显示延迟 + token 用量。"""
+        """先保存当前三项，再真发一次短请求（只回复 OK），显示延迟 + token 用量。
+
+        关键点：**请求参数由输入框的值直接组装**（``config_from_values``），
+        不再回读 config.json / .env。因此「三个框有值」⇔「一定能发起请求」，
+        落盘失败只提示、不拦测试。
+        """
         if self._testing:
             self.api_state.configure(text="上一次测试还在进行中…")
             return
 
+        values = self._current_api()
         lines = []
+        missing = []
         for key, label in cfg.API_FIELDS:
-            value = (self.api_vars[key].get() or "").strip()
+            # 这里再 strip 一次：纯空白一律按“没填”算，绝不把空格当内容发出去。
+            value = (values.get(key) or "").strip()
             shown = (cfg.mask_secret(value) if key == "api_key"
                      else (value or "（未填）"))
             lines.append(f"· {label}：{'✅' if value else '❌'} {shown}")
-        if not self._save_api(announce=False):
+            if not value:
+                missing.append(label)
+
+        if missing:
             lines.append("")
             lines.append("结论：三项没填齐，无法发起真实请求。")
+            lines.append("  · 还差：" + "、".join(missing))
             lines.append("  · 点上方「如何获取 API Key？」看看怎么申请。")
             self._show_api_detail("\n".join(lines))
             self.api_state.configure(text="缺少 API 配置")
             return
+
+        saved = self._save_api(announce=False)
+        saved_to = cfg.display_path(getattr(self.app, "last_save_path", cfg.CONFIG_PATH))
+        if saved == "ok":
+            lines.append("")
+            lines.append(f"三项已写入 {saved_to}。")
+        else:
+            reason = getattr(self.app, "last_save_error", "") or "原因未知"
+            lines.append("")
+            lines.append(f"注意：没能写入 {saved_to}")
+            lines.append(f"  原因：{reason}")
+            lines.append("  本次测试直接使用输入框里的值，不受影响。")
 
         self._testing = True
         self.api_state.configure(text="正在连接…")
@@ -558,7 +624,11 @@ class SettingsPage(ctk.CTkFrame):
                 except ImportError:  # pragma: no cover - 包内运行时
                     from ..parser import llm_parser  # type: ignore
 
-                conf = llm_parser.load_config()
+                # 直接用界面上的三个值组装配置：不回读磁盘，不被旧 .env 覆盖。
+                conf = llm_parser.config_from_values(
+                    values["api_base_url"], values["api_key"], values["api_model"],
+                    source="设置页输入",
+                )
                 client = llm_parser.get_client(conf)
                 try:
                     response = client.chat.completions.create(

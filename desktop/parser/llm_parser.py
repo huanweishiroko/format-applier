@@ -270,6 +270,62 @@ def load_config(env_path: str | Path | None = None, *, required: bool = True) ->
     )
 
 
+#: 需要剥掉的“看不见的空白”：普通空白 + NBSP + 全角空格 + 零宽字符 + BOM。
+#: 用户复制粘贴密钥/地址时最容易夹带这些，``strip()`` 默认剥不掉 NBSP 和零宽字符。
+_BLANK_CHARS = " \t\r\n\f\v\u00a0\u3000\u200b\u200c\u200d\ufeff"
+
+
+def clean_value(raw: Any) -> str:
+    """去首尾空白（含 NBSP / 全角空格 / 零宽字符），保留真正内容。"""
+    if raw is None:
+        return ""
+    return str(raw).strip(_BLANK_CHARS)
+
+
+def _env_num(name: str, default: float) -> float:
+    """读一个数字环境变量；缺失或非法都返回默认值。"""
+    raw = clean_value(os.getenv(name))
+    try:
+        return float(raw) if raw else default
+    except ValueError:
+        return default
+
+
+def config_from_values(base_url: Any, api_key: Any, model: Any, *,
+                       temperature: Optional[float] = None,
+                       timeout: Optional[float] = None,
+                       source: str = "设置页输入") -> LlmConfig:
+    """用**界面输入框里的三项**直接组装配置，完全不回读磁盘。
+
+    设置页的「测试 API 连接」和「处理」都走这里：只要三个框里有值就一定能发起
+    请求，即使 ``config.json`` 不可写、或旧的 ``.env`` 里是空值/错值。
+
+    缺项时抛 ``LlmConfigError``（文案与 ``load_config`` 一致）。
+    """
+    values = {
+        "API 地址": clean_value(base_url),
+        "API 密钥": clean_value(api_key),
+        "模型名称": clean_value(model),
+    }
+    missing = tuple(name for name, value in values.items() if not value)
+    if missing:
+        raise LlmConfigError(
+            "缺少 LLM 配置：" + "、".join(missing) +
+            "。请在「设置 → API 配置」里把三项都填上，点「保存配置」后重试。"
+        )
+    return LlmConfig(
+        base_url=values["API 地址"],
+        api_key=values["API 密钥"],
+        model=values["模型名称"],
+        temperature=(_env_num("OPENAI_TEMPERATURE", 0.0)
+                     if temperature is None else temperature),
+        timeout=(_env_num("OPENAI_TIMEOUT", 120.0)
+                 if timeout is None else timeout),
+        source=source,
+        missing=(),
+    )
+
+
 def get_client(cfg: LlmConfig):
     """按配置建 OpenAI 客户端（OpenAI 兼容接口）。"""
     from openai import OpenAI

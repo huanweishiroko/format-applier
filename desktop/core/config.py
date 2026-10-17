@@ -32,6 +32,7 @@ import datetime
 import json
 import os
 import shutil
+import stat
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -200,6 +201,50 @@ def config_path() -> Path:
 #: 用户配置落点（导入时求值一次；与 user_presets 的用户预设目录同根）
 CONFIG_PATH: Path = config_path()
 
+
+def config_candidates() -> Tuple[Path, ...]:
+    """config.json 的候选落点，按优先级排列。
+
+    1. ``%APPDATA%\\Taofu\\config.json`` —— 正常情况只用这一个；
+    2. ``%LOCALAPPDATA%\\Taofu\\config.json`` —— 主落点被锁死（杀软拦截、权限、
+       文件被占用）时的退路，仍在用户目录里，不进程序目录；
+    3. ``<exe 同级>\\data\\config.json`` —— 绿色便携场景（仅 frozen，且前两处都写不进）。
+
+    写入按顺序退让；读取由 ``active_config_path()`` 挑最新的一份。
+    """
+    out: List[Path] = [CONFIG_PATH]
+    local = (os.environ.get("LOCALAPPDATA") or "").strip()
+    if local:
+        candidate = Path(local) / "Taofu" / "config.json"
+        if candidate != CONFIG_PATH:
+            out.append(candidate)
+    if frozen():
+        candidate = APP_DIR / "data" / "config.json"
+        if candidate not in out:
+            out.append(candidate)
+    return tuple(out)
+
+
+def active_config_path() -> Path:
+    """当前**实际生效**的 config.json。
+
+    规则：候选里“存在”的那几份，取**修改时间最新**的一份；都不存在则返回主落点。
+    这样主落点写不进、配置自动改存到第二落点时，下次启动读的仍是最新那份，
+    而不会被旧的半截文件顶掉。
+    """
+    best: Optional[Path] = None
+    best_mtime = -1.0
+    for candidate in config_candidates():
+        try:
+            if not candidate.is_file():
+                continue
+            mtime = candidate.stat().st_mtime
+        except OSError:
+            continue
+        if mtime > best_mtime:
+            best, best_mtime = candidate, mtime
+    return best if best is not None else CONFIG_PATH
+
 #: 旧版 config.json 落点（Phase 4 打包后在 _internal\\，仅在内存里读旧值用）
 LEGACY_CONFIG_CANDIDATES: Tuple[Path, ...] = (
     (_internal_dir() / "config.json",) if _internal_dir() is not None else ()
@@ -245,8 +290,11 @@ def migrate_legacy_data() -> Optional[str]:
         if src_presets.is_dir():
             shutil.copytree(src_presets, new_dir / "presets", dirs_exist_ok=True)
             copied.append("presets/")
+        # copy2/copytree 会把老目录的只读属性原样搬过来——新目录一开局就“不可写”，
+        # 表现就是设置页怎么点保存都失败。这里统一清成可写。
+        _make_tree_writable(new_dir)
     except OSError as exc:              # 权限不足 / 磁盘满：只报告，不阻断启动
-        return f"旧用户数据迁移失败：{exc}"
+        return f"旧用户数据迁移失败：{_error_detail(exc)}"
     if not copied:
         return None
     return f"已迁移旧用户数据 -> {new_dir}（{'、'.join(copied)}；旧目录保留作备份）"
@@ -423,7 +471,7 @@ def load_settings(path: Optional[Path] = None) -> Settings:
     if path is not None:
         data = _read_json_dict(Path(path))
     else:
-        data = _read_json_dict(CONFIG_PATH)
+        data = _read_json_dict(active_config_path())
         if not data:
             for legacy in LEGACY_CONFIG_CANDIDATES:
                 data = _read_json_dict(legacy)
@@ -445,22 +493,125 @@ def load_settings(path: Optional[Path] = None) -> Settings:
     return settings
 
 
-def save_settings(settings: Settings, path: Optional[Path] = None) -> bool:
-    """写 config.json（UTF-8，缩进 2），首次自动建目录。成功返回 True。"""
-    target = Path(path) if path else CONFIG_PATH
+def _clear_readonly(target: Path) -> None:
+    """清掉目标文件/目录的只读属性。
+
+    Windows 上只读属性会让 ``write_text`` 直接抛 ``PermissionError``
+    (WinError 5)，而这恰恰是 ``copy2``/``copytree`` 从老目录带过来的东西。
+    """
+    for item in (target, target.parent):
+        try:
+            mode = item.stat().st_mode
+            if not mode & stat.S_IWRITE:
+                os.chmod(item, mode | stat.S_IWRITE)
+        except OSError:                 # 不存在 / 无权限：交给后面的写入报错
+            continue
+
+
+def _error_detail(exc: OSError) -> str:
+    """把 OSError 整理成一行可读、可贴给用户的说明（含 WinError / errno / 路径）。"""
+    parts = [f"{type(exc).__name__}: {exc}"]
+    winerror = getattr(exc, "winerror", None)
+    if winerror:
+        parts.append(f"WinError={winerror}")
+    if exc.errno is not None:
+        parts.append(f"errno={exc.errno}")
+    if getattr(exc, "filename", None):
+        parts.append(f"path={exc.filename}")
+    return " · ".join(parts)
+
+
+def _write_config_file(target: Path, text: str) -> None:
+    """把 text 写进 target；写不进去就抛 OSError（带上最后一次的真实原因）。
+
+    依次尝试四种写法，专治 Windows 上最常见的几种失败：
+      1. 建目录 + 清只读 + 直接覆盖；
+      2. 写 ``<name>.tmp`` 再 ``os.replace`` 原子替换（绕过“文件被占用”）；
+      3. 删掉目标文件再重建（绕过“文件被锁但目录可写”）；
+      4. 只读属性顽固时再强制 chmod 后重试一次。
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _clear_readonly(target)
+    tmp = target.with_name(target.name + ".tmp")
+    strategies = (
+        lambda: target.write_text(text, encoding="utf-8"),
+        lambda: (tmp.write_text(text, encoding="utf-8"), os.replace(tmp, target)),
+        lambda: (target.unlink(missing_ok=True), target.write_text(text, encoding="utf-8")),
+        lambda: (_force_writable(target), target.write_text(text, encoding="utf-8")),
+    )
+    last: Optional[OSError] = None
+    for strategy in strategies:
+        try:
+            strategy()
+            return
+        except OSError as exc:
+            last = exc
+            try:                        # 失败时别把 .tmp 留在用户目录里
+                tmp.unlink()
+            except OSError:
+                pass
+    raise last if last is not None else OSError("未知写入错误")
+
+
+def _force_writable(target: Path) -> None:
+    """强制给目标（存在时）加写权限；不存在则跳过。"""
+    try:
+        if target.exists():
+            os.chmod(target, stat.S_IWRITE | stat.S_IREAD)
+    except OSError:
+        pass
+
+
+def _make_tree_writable(root: Path) -> None:
+    """把整棵目录树（含自身）的文件/目录只读属性清掉。
+
+    用于老数据迁移之后：``copy2`` / ``copytree`` 会把源文件的只读属性一并复制，
+    或者源目录本身带拒绝权限，结果新目录里的 ``config.json`` 天生不可写。
+    """
+    targets: List[Path] = [root]
+    try:
+        targets.extend(root.rglob("*"))
+    except OSError:
+        pass
+    for item in targets:
+        try:
+            mode = item.stat().st_mode
+            if not mode & stat.S_IWRITE:
+                os.chmod(item, mode | stat.S_IWRITE)
+        except OSError:
+            continue
+
+
+def save_settings_ex(settings: Settings,
+                     path: Optional[Path] = None) -> Tuple[bool, Path, str]:
+    """写 config.json；主落点失败时按 ``config_candidates()`` 依次退让。
+
+    返回 ``(是否成功, 实际落点, 失败原因)``。失败原因把每个落点的**具体**
+    OSError（WinError / errno / 路径）串起来，界面可以直接展示。
+    ``path`` 显式给定时只试那一个，不退让（单测用）。
+    """
+    targets = (Path(path),) if path is not None else config_candidates()
     payload = asdict(settings)
     extra = payload.pop("extra", {}) or {}
     payload.pop("first_run", None)      # 运行时标记，不落盘
     payload.update(extra)
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        return True
-    except OSError:
-        return False
+    text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+
+    errors: List[str] = []
+    for target in targets:
+        try:
+            _write_config_file(Path(target), text)
+            return True, Path(target), ""
+        except OSError as exc:
+            errors.append(f"{display_path(target)} → {_error_detail(exc)}")
+    if path is not None and targets:    # 显式路径：错误文案里给出真实路径
+        errors = [f"{targets[0]} → {err.split(' → ', 1)[-1]}" for err in errors]
+    return False, Path(targets[0]) if targets else CONFIG_PATH, "；".join(errors)
+
+
+def save_settings(settings: Settings, path: Optional[Path] = None) -> bool:
+    """写 config.json，成功返回 True（失败原因见 ``save_settings_ex``）。"""
+    return save_settings_ex(settings, path)[0]
 
 
 # --------------------------------------------------------------------------- #
@@ -585,7 +736,7 @@ def api_config_values(path: Optional[Path] = None) -> Dict[str, str]:
     ``path`` 显式给定时只读那个文件（单测/迁移用）。缺失的字段返回空串，
     不抛异常——配置文件损坏也不该拦住启动。
     """
-    data = _read_json_dict(Path(path) if path is not None else CONFIG_PATH)
+    data = _read_json_dict(Path(path) if path is not None else active_config_path())
     values: Dict[str, str] = {}
     for key, _label in API_FIELDS:
         raw = data.get(key)
