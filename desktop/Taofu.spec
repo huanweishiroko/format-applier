@@ -1,9 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller 打包配方 · Word 格式助手（Phase 4）。
+"""PyInstaller 打包配方 · 桃符（v2.0.0）。
 
-用法（由用户在本机终端手动执行，不要在受限的 DSH 会话里跑）::
+用法（开发者在本机终端手动执行）::
 
-    cd E:\\dsh_plugins\\word-format-applier\\desktop
+    cd <仓库>/desktop
     .\\build.bat
 
 关键设计与理由
@@ -16,15 +16,19 @@
   所以 exe 必须能 import 到 `word_format_applier` 这个包：
   `datas` 里把 `../src/word_format_applier` 原样铺进包根，再配
   `hidden-import word_format_applier` 双保险。
-* **datas 的落点**：onedir 下 `sys._MEIPASS` 指向 `dist/Word格式助手/_internal`。
+* **datas 的落点**：onedir 下 `sys._MEIPASS` 指向 `dist/桃符/_internal`。
   `core/config.py` 里凡"用户可见/可改"的路径都以 `sys.executable`（= exe 同级）
   为基准，只有**只读资源**才走 `_MEIPASS`：`presets/` 落在这里
   （`_MEIPASS/presets`），插件 `presets.py` 的 `PLUGIN_ROOT` 同样推算成 `_MEIPASS`。
-* **`.env` 的落点**：`config.ENV_PATH` = **exe 同级 `.env`**（Phase 5 起）。
-  所以 `.env.example` 的主副本由 build.bat 放到 **exe 同级**；spec 这里再往
+* **`.env` 的落点**：`config.ENV_PATH` = **exe 同级 `.env`**（老用户兼容用）。
+  新用户直接在软件「设置 → API 配置」里填，写 `%APPDATA%\Taofu\config.json`。
+  `.env.example` 的主副本由 build_finish.py 放到 **exe 同级**；spec 这里再往
   `_MEIPASS/.env.example` 铺一份，只是为了旧版路径下也能看到模板（向后兼容）。
-  **不打包 desktop/.env 本体**——那会把真实 API key 一起发出去。
-* **不要加入 `samples/`、`tests/`、`__pycache__`**：dist 体积和杀毒误报都靠它。
+  **绝不打包 desktop/.env 本体**——那会把开发机的真实 API key 一起发出去；
+  build_finish.py 还会删掉误入 dist 的 `.env`。
+* **不要加入 `samples/`、`tests/`、`tools/`、`NOTES.md`、`_acl-recovery/`、
+  `docs/`、`__pycache__`**：dist 体积和杀毒误报都靠它。datas 只列白名单，
+  build_finish.py 再兜底删一遍开发残留。
 """
 
 import os
@@ -59,6 +63,12 @@ _datas.append((os.path.join(_ROOT, "src", "word_format_applier"), "word_format_a
 #     exe 所在目录，CLI 默认就在这儿找预设；
 #   * 外壳侧：`core/config.py::resolve_presets_dir()` 第一优先级也是这里。
 _datas.append((os.path.join(_ROOT, "presets"), "presets"))
+
+# --- 图标资源（只读，v2.0.0 新增）-------------------------------------------- #
+# 窗口/任务栏图标走 `core/config.py::asset_path()`：frozen 时 = _MEIPASS/assets/。
+# 注意区分：**exe 本体**的图标不靠这里，靠下面 EXE(icon=...) —— 那里必须是磁盘上的
+# 真实路径，不能是 _MEIPASS（打包期 _MEIPASS 还不存在）。
+_datas.append((os.path.join(_SPEC_DIR, "assets"), "assets"))
 
 # --- 用户参考文件 ------------------------------------------------------------- #
 # 1) .env 模板 → 落在 _MEIPASS（build.bat 另在 exe 同级放一份，那份才是主副本，
@@ -126,7 +136,7 @@ exe = EXE(  # noqa: F821 - EXE 由 PyInstaller 注入
     a.scripts,
     [],
     exclude_binaries=True,
-    name="Word格式助手",
+    name="桃符",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -137,7 +147,7 @@ exe = EXE(  # noqa: F821 - EXE 由 PyInstaller 注入
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,          # 暂无 .ico，需要时把图标路径填这里
+    icon=os.path.join(_SPEC_DIR, "assets", "taofu.ico"),   # exe 本体图标（资源管理器/任务栏）
 )
 
 coll = COLLECT(  # noqa: F821 - COLLECT 由 PyInstaller 注入
@@ -147,5 +157,5 @@ coll = COLLECT(  # noqa: F821 - COLLECT 由 PyInstaller 注入
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="Word格式助手",
+    name="桃符",
 )

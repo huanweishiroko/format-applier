@@ -13,7 +13,7 @@
   ==================  ==========================================  ==========
 
 拿到 DSL 后：弹窗里可**手工编辑** → [确认使用] → 询问是否存为用户预设 →
-存则落盘到 ``%APPDATA%\\WordFormatAssistant\\presets\\user_<时间戳>_<名字>.txt``，
+存则落盘到 ``%APPDATA%\\Taofu\\presets\\user_<时间戳>_<名字>.txt``，
 并让首页刷新下拉框、自动选中新预设。
 
 API Key 缺失：给明确提示 + 一个「打开设置」按钮。
@@ -176,8 +176,9 @@ def _prompt_open_settings(master, message: str) -> None:
     win.body.grid_rowconfigure(1, weight=1)
     ctk.CTkLabel(
         win.body,
-        text="这份格式要求需要用 AI 转成 DSL，但当前缺少 API 配置。\n"
-             "请到「设置 → API 配置」核对 .env（在 exe 同级）或环境变量里的三项后重试。",
+        text="这份格式要求需要用 AI 转成 DSL，但当前还没有配置 API。\n"
+             "请到「设置 → API 配置」填入 API 地址、API 密钥、模型名称，点「保存配置」后重试。\n"
+             "不知道去哪儿申请？设置页里有「如何获取 API Key？」按钮。",
         font=th.font(13), justify="left", anchor="w", wraplength=500,
     ).grid(row=0, column=0, sticky="ew")
     box = th.textbox(win.body, mono=True, wrap="word", height=80)

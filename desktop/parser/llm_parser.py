@@ -2,8 +2,12 @@
 
 依赖：
     openai          调用 OpenAI 兼容的 /chat/completions
-    python-dotenv   读 OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL
-                    （.env 位置由 core/config.py 解析：exe 同级，开发期 desktop/）
+    python-dotenv   读老用户的 .env（OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL）
+
+配置来源（优先级从高到低，见 load_config）：
+    1. %APPDATA%\\Taofu\\config.json —— 软件「设置 → API 配置」保存的三项
+    2. exe 同级 .env / 环境变量 —— 老用户兼容
+    3. 都没有 → LlmConfigError，提示去设置页填写
 
 行为：
     * system prompt 内置 DSL 语法说明（对齐 presets/格式要求1.txt 的标签体系）。
@@ -126,6 +130,8 @@ class LlmConfig:
     temperature: float = 0.0
     timeout: float = 120.0
     env_path: str = ""
+    #: 本次配置的来源："config.json"（设置页保存）/ ".env"（老用户）/ "环境变量"
+    source: str = ""
     missing: tuple = field(default_factory=tuple)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -135,6 +141,7 @@ class LlmConfig:
             "temperature": self.temperature,
             "timeout": self.timeout,
             "env_path": self.env_path,
+            "source": self.source,
             "api_key": f"***{self.api_key[-4:]}" if self.api_key else "",
         }
 
@@ -163,33 +170,85 @@ class DslResult:
 # --------------------------------------------------------------------------- #
 
 
-def load_config(env_path: str | Path | None = None, *, required: bool = True) -> LlmConfig:
-    """读 .env + 环境变量，返回 LLM 配置。环境变量优先于 .env。
+def _app_config():
+    """``core/config.py`` 模块（拿 %APPDATA%\\Taofu\\config.json 的读取器）。
 
-    默认路径来自 ``core/config.py``：**exe 同级 .env**（开发期 desktop/.env），
-    旧版 ``_internal\\.env`` 也能被读到；两者都没有时只认环境变量。
+    导入失败返回 ``None``：AI 解析不能因为配置模块缺失就崩掉。
     """
-    from dotenv import load_dotenv
+    try:
+        try:
+            from core import config as appcfg  # 绝对优先（frozen 下 core 是顶层包）
+        except ImportError:  # pragma: no cover - 包内运行时
+            from ..core import config as appcfg  # type: ignore
+        return appcfg
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def load_config(env_path: str | Path | None = None, *, required: bool = True) -> LlmConfig:
+    """读 AI 配置，三级优先级：
+
+    1. **config.json** —— ``%APPDATA%\\Taofu\\config.json``，设置页「保存配置」写入。
+       这是新用户唯一需要碰的地方；
+    2. **exe 同级 .env**（开发期 = ``desktop\\.env``）—— 兼容老用户；进程环境变量
+       ``OPENAI_*`` 也算这一级（设了就不用建文件）；
+    3. 都没有 → 抛 ``LlmConfigError``，提示去「设置 → API 配置」填密钥。
+
+    ``env_path`` 显式给定时只读那个 .env（命令行 ``--env``），跳过第 1 级。
+    """
+    appcfg = _app_config()
+    saved: Dict[str, str] = {}
+    if env_path is None and appcfg is not None:
+        try:
+            saved = appcfg.api_config_values()
+        except Exception:  # noqa: BLE001 - 配置文件损坏也不能拦住流程
+            saved = {}
+
+    base_url = (saved.get("api_base_url") or "").strip()
+    api_key = (saved.get("api_key") or "").strip()
+    model = (saved.get("api_model") or "").strip()
+    source = "config.json" if (base_url and api_key and model) else ""
 
     path = Path(env_path) if env_path else _default_env_path()
-    if path.exists():
-        load_dotenv(path, override=False)
-    # 文件不存在时**不再**从 cwd 往上瞎找：打包后 cwd 可能是任意目录，
-    # 从那儿捡到别人的 .env 会让人查半天（环境变量仍然生效）。
+    if not source:
+        # 第 2 级：.env（老用户）+ 环境变量。文件不存在时**不再**从 cwd 往上瞎找：
+        # 打包后 cwd 可能是任意目录，从那儿捡到别人的 .env 会让人查半天。
+        # 用 dotenv_values 而不是 load_dotenv：只读文件、不污染 os.environ，
+        # 这样每次调用都严格按优先级取值。
+        from dotenv import dotenv_values
 
-    base_url = (os.getenv("OPENAI_BASE_URL") or "").strip()
-    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
-    model = (os.getenv("OPENAI_MODEL") or "").strip()
+        file_values: Dict[str, str] = {}
+        if path.is_file():
+            try:
+                file_values = {
+                    key: (value or "").strip()
+                    for key, value in dotenv_values(path).items()
+                }
+            except Exception:  # noqa: BLE001 - 坏 .env 当没有
+                file_values = {}
+
+        def _env(name: str) -> str:
+            return (os.getenv(name) or "").strip() or file_values.get(name, "")
+
+        if not base_url:
+            base_url = _env("OPENAI_BASE_URL")
+        if not api_key:
+            api_key = _env("OPENAI_API_KEY")
+        if not model:
+            model = _env("OPENAI_MODEL")
+        if base_url and api_key and model:
+            source = ".env" if path.is_file() else "环境变量"
+
     missing = tuple(
         name for name, value in
-        (("OPENAI_BASE_URL", base_url), ("OPENAI_API_KEY", api_key), ("OPENAI_MODEL", model))
+        (("API 地址", base_url), ("API 密钥", api_key), ("模型名称", model))
         if not value
     )
     if missing and required:
         raise LlmConfigError(
-            "缺少 LLM 配置：" + ", ".join(missing) +
-            f"。请在 {path.parent} 下新建 .env（可照抄同目录的 .env.example），"
-            "或直接设 OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL 环境变量。"
+            "缺少 LLM 配置：" + "、".join(missing) +
+            "。请前往「设置 → API 配置」填入 API 地址、API 密钥和模型名称，"
+            "点「保存配置」后重试。"
         )
 
     def _num(name: str, default: float) -> float:
@@ -206,6 +265,7 @@ def load_config(env_path: str | Path | None = None, *, required: bool = True) ->
         temperature=_num("OPENAI_TEMPERATURE", 0.0),
         timeout=_num("OPENAI_TIMEOUT", 120.0),
         env_path=str(path),
+        source=source,
         missing=missing,
     )
 
@@ -343,7 +403,7 @@ def extract_usage(response: Any) -> Dict[str, int]:
 
 
 def record_usage_to_config(model: str, usage: Dict[str, int], kind: str = "") -> None:
-    """把一次调用的用量累加进 ``%APPDATA%\\WordFormatAssistant\\usage.json``。
+    """把一次调用的用量累加进 ``%APPDATA%\\Taofu\\usage.json``。
 
     统计失败绝不影响转换结果（静默忽略）。本函数由桌面层使用；
     插件 CLI 自带 LLM 回退时不走这里。

@@ -16,19 +16,19 @@ except ImportError:  # pragma: no cover - 包内运行时
     from ..core import config as cfg  # type: ignore
 
 INTRO = (
-    "Word 格式处理：把「格式要求」（自然语言要求或样式模板）落到一份 .docx 上，"
+    "桃符：把「格式要求」（自然语言要求或样式模板）落到一份 .docx 上，"
     "正文内容不动，只调整字体、字号、标题层级、列表、表格、对齐、缩进、行距与页面设置。\n\n"
-    "本程序是插件的桌面外壳：默认本地规则解析（零 LLM 调用），"
-    "只有本地规则覆盖不到的要求才回退到 LLM。"
+    "所有处理都在你自己的电脑上完成，文档不会上传；只有你主动使用「AI 解析」时，"
+    "才会把格式要求那几句话发给你自己配置的接口。"
 )
 
 STACK = (
-    ("界面", "customtkinter 6（默认 blue 主题，浅色 / 深色可切换）"),
-    ("拖放", "tkinterdnd2 0.6.3（原生文件拖放）"),
-    ("文档", "python-docx、openpyxl 等由插件侧提供"),
-    ("解析", "Phase 1 的 desktop/parser 三件套：txt / docx / llm"),
-    ("处理", "desktop/core/bridge.py → 插件 CLI（开发期 -m，打包后 --wfa-cli）"),
-    ("当前阶段", cfg.PHASE_LABEL),
+    ("界面", "customtkinter（浅色 / 深色可切换）"),
+    ("拖放", "tkinterdnd2（把文件直接拖进窗口）"),
+    ("文档", "python-docx（读写 .docx，不改原文件）"),
+    ("解析", "本地规则解析 + 可选 AI 语义解析"),
+    ("网络", "除 AI 解析外不联网；Key 只保存在本机"),
+    ("版本状态", cfg.PHASE_LABEL),
 )
 
 
@@ -50,11 +50,11 @@ class AboutPage(ctk.CTkFrame):
         hero.grid(row=0, column=0, sticky="ew", padx=th.PAD_L, pady=(th.PAD_L, th.PAD))
         hero.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(hero, text="Word 格式处理", font=th.font(24, "bold"), anchor="w").grid(
+        ctk.CTkLabel(hero, text="桃符", font=th.font(24, "bold"), anchor="w").grid(
             row=0, column=0, sticky="w", padx=th.PAD_L, pady=(th.PAD_L, 2)
         )
         ctk.CTkLabel(
-            hero, text=f"版本 {cfg.APP_VERSION} · {cfg.PHASE_LABEL}",
+            hero, text=f"版本 v{cfg.APP_VERSION} · {cfg.PHASE_LABEL}",
             font=th.font(13), anchor="w", text_color=th.TEXT_SECOND,
         ).grid(row=1, column=0, sticky="w", padx=th.PAD_L)
         ctk.CTkLabel(
@@ -87,9 +87,6 @@ class AboutPage(ctk.CTkFrame):
         rows = (
             ("程序目录", cfg.APP_DIR),
             ("内置预设", cfg.PRESETS_DIR),
-            ("解析缓存", cfg.PRESETS_DIR / ".cache"),
-            ("插件源码", cfg.SRC_DIR),
-            ("界面代码", cfg.DESKTOP_DIR / "ui"),
             ("用户数据", cfg.user_data_dir()),
             ("用户配置", cfg.CONFIG_PATH),
             ("API 配置", _env_source()),
@@ -101,7 +98,8 @@ class AboutPage(ctk.CTkFrame):
             ctk.CTkLabel(paths, text=key, font=th.font(13, "bold"), anchor="w").grid(
                 row=i, column=0, sticky="w", padx=(th.PAD, th.PAD), pady=2
             )
-            ctk.CTkLabel(paths, text=str(path), font=ctk.CTkFont(family="Consolas", size=12),
+            ctk.CTkLabel(paths, text=cfg.display_path(path),
+                         font=ctk.CTkFont(family="Consolas", size=12),
                          anchor="w").grid(row=i, column=1, sticky="w", pady=2, padx=(0, th.PAD))
         ctk.CTkLabel(paths, text="", height=4).grid(row=len(rows) + 1, column=0)
 
@@ -111,7 +109,7 @@ class AboutPage(ctk.CTkFrame):
         th.ghost_button(bar, "打开程序目录", self._open_root, width=140, height=32).grid(
             row=0, column=0, sticky="w"
         )
-        th.hint(bar, "处理由插件 CLI 完成（本地规则优先，零 LLM 调用）；用户预设只写 APPDATA。").grid(
+        th.hint(bar, "所有处理都在本机完成；用户预设只写你的账户目录。").grid(
             row=0, column=1, sticky="w", padx=th.PAD
         )
 
@@ -123,11 +121,11 @@ class AboutPage(ctk.CTkFrame):
 
 
 def _env_source() -> str:
-    """API 配置的实际来源（.env 路径 / 环境变量 / 建议路径）。"""
+    """API 配置的实际来源（设置页 / 老版 .env / 尚未配置）。"""
     try:
-        return cfg.env_source_label()
+        return cfg.api_source_label()
     except Exception:  # noqa: BLE001
-        return str(cfg.ENV_TARGET_PATH)
+        return "尚未配置"
 
 
 def _user_presets_dir() -> str:

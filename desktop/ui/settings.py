@@ -5,7 +5,7 @@ Phase 3 边界：
   * 用户预设目录：显示真实路径 + 「打开目录」；
   * 「测试 API 连接」：真发一次短请求（system 要求"只回复 OK"），
     成功显示往返延迟 + token 用量，失败显示原始错误；
-  * token 统计：读 ``%APPDATA%\\WordFormatAssistant\\usage.json``（llm_parser 累加）。
+  * token 统计：读 ``%APPDATA%\\Taofu\\usage.json``（llm_parser 累加）。
 """
 
 from __future__ import annotations
@@ -35,13 +35,33 @@ except ImportError:  # pragma: no cover - 包内运行时
 #: 「测试连接」用的短 prompt（成本最低，只验证连通性与鉴权）
 TEST_PROMPT = "只回复 OK"
 
+#: 密钥输入框的遮蔽字符（点「显示」可临时看清楚）
+API_MASK = "•"
 
-def _env_source_text() -> str:
-    """API 配置的实际来源：.env 路径，或"环境变量"（都没配时给建议路径）。"""
+#: 三个输入框的占位提示（告诉小白该长什么样）
+API_PLACEHOLDER = {
+    "api_base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-开头的密钥，粘贴在这里",
+    "api_model": "deepseek-chat / glm-4-flash / moonshot-v1-8k",
+}
+
+#: 「如何获取 API Key？」弹窗里的平台清单：(名称, 注册地址, 常用模型, 备注)
+API_HELP_LINKS = (
+    ("智谱 AI（GLM）", "https://open.bigmodel.cn/", "glm-4-flash（有免费额度）",
+     "注册 → 实名认证 → 控制台「API Keys」→ 复制。地址填 https://open.bigmodel.cn/api/paas/v4"),
+    ("DeepSeek（深度求索）", "https://platform.deepseek.com/", "deepseek-chat",
+     "注册 → 充值（按量计费，很便宜）→「API keys」→ 创建 → 复制。地址填 https://api.deepseek.com/v1"),
+    ("Kimi（月之暗面）", "https://platform.moonshot.cn/", "moonshot-v1-8k",
+     "注册 → 完成手机验证 →「API Key 管理」→ 新建 → 复制。地址填 https://api.moonshot.cn/v1"),
+)
+
+
+def _api_source_text() -> str:
+    """当前 API 配置的来源：设置页 / 老版 .env / 尚未配置（一句人话）。"""
     try:
-        return cfg.env_source_label()
+        return cfg.api_source_label()
     except Exception:  # noqa: BLE001 - 展示用，绝不能拖垮页面
-        return str(cfg.ENV_TARGET_PATH)
+        return "尚未配置"
 
 
 class SettingsPage(ctk.CTkFrame):
@@ -64,7 +84,7 @@ class SettingsPage(ctk.CTkFrame):
         ctk.CTkLabel(head, text="设置", font=th.font(22, "bold"), anchor="w").grid(
             row=0, column=0, sticky="w"
         )
-        th.hint(head, f"改动即时生效，并写入 {cfg.CONFIG_PATH}").grid(
+        th.hint(head, f"改动即时生效，并写入 {cfg.display_path(cfg.CONFIG_PATH)}").grid(
             row=1, column=0, sticky="w", pady=(2, 0)
         )
 
@@ -105,8 +125,7 @@ class SettingsPage(ctk.CTkFrame):
         self.out_state = th.hint(bar, "")
         self.out_state.grid(row=0, column=2, padx=th.PAD_S)
 
-        th.hint(card, "首次启动自动用「文档\\WordFormatAssistant」；改动后立即写入 "
-                      f"{cfg.CONFIG_PATH}").grid(
+        th.hint(card, "首次启动自动用「文档\\Taofu」；改动后立即保存，无需重启。").grid(
             row=3, column=0, sticky="w", padx=th.PAD, pady=(0, th.PAD)
         )
 
@@ -181,52 +200,64 @@ class SettingsPage(ctk.CTkFrame):
             dlg.error(self.app, "无法打开目录。", detail=f"{target}\n{exc}")
 
     # ------------------------------------------------------------------ #
-    # API 配置（只读）
+    # API 配置（界面里直接改，写 %APPDATA%\Taofu\config.json）
     # ------------------------------------------------------------------ #
 
     def _build_api_card(self, master) -> None:
-        rows = cfg.env_field_rows()
-        all_present = bool(rows) and all(present for _k, _l, _v, present in rows)
+        rows = cfg.api_field_rows()
+        all_present = all(present for _k, _l, _v, present in rows)
         card = self._card(
-            master, 0, "API 配置（只读展示 .env 或环境变量）",
-            badge=("已配置" if all_present else "未配置齐",
+            master, 0, "API 配置（AI 解析用）",
+            badge=("已配置" if all_present else "未配置",
                    "success" if all_present else "danger"),
             span=3,
         )
         card.grid_columnconfigure(1, weight=1)
 
-        self.env_rows = {}
-        for i, (key, label, value, present) in enumerate(rows, start=1):
+        self.api_vars = {}
+        self.api_rows = {}
+        for i, (key, label, value, _present) in enumerate(rows, start=1):
             ctk.CTkLabel(card, text=label, font=th.font(13), anchor="w").grid(
                 row=i, column=0, sticky="w", padx=(th.PAD, th.PAD_S), pady=4
             )
-            entry = th.entry(card)
-            entry.insert(0, value)
-            entry.configure(state="disabled")
-            entry.grid(row=i, column=1, sticky="ew", padx=(0, th.PAD), pady=4)
-            state = th.badge(card, "已设置" if present else "缺失",
-                             tone="success" if present else "danger")
-            state.grid(row=i, column=2, sticky="w", padx=(0, th.PAD), pady=4)
-            self.env_rows[key] = (entry, state)
+            var = tk.StringVar(value=value)
+            self.api_vars[key] = var
+            entry = th.entry(
+                card, textvariable=var,
+                placeholder_text=API_PLACEHOLDER.get(key, ""),
+                show=API_MASK if key == "api_key" else "",
+            )
+            entry.grid(row=i, column=1, sticky="ew", padx=(0, th.PAD_S), pady=4)
+            self.api_rows[key] = entry
+            if key == "api_key":
+                th.ghost_button(card, "显示", lambda e=entry: self._toggle_key(e),
+                                width=56, height=30).grid(
+                    row=i, column=2, sticky="w", padx=(0, th.PAD))
 
-        foot = ctk.CTkFrame(card, fg_color="transparent")
-        foot.grid(row=len(self.env_rows) + 1, column=0, columnspan=3, sticky="ew",
-                  padx=th.PAD, pady=(th.PAD_S, th.PAD))
-        foot.grid_columnconfigure(1, weight=1)
+        bar = ctk.CTkFrame(card, fg_color="transparent")
+        bar.grid(row=len(rows) + 2, column=0, columnspan=3, sticky="ew",
+                 padx=th.PAD, pady=(th.PAD_S, 0))
+        bar.grid_columnconfigure(3, weight=1)
+        th.primary_button(bar, "保存配置", self._save_api,
+                          width=th.BTN_W_L, height=30).grid(row=0, column=0, sticky="w")
+        th.ghost_button(bar, "如何获取 API Key？", self._show_api_help,
+                        width=th.BTN_W_XL, height=30).grid(
+            row=0, column=1, sticky="w", padx=th.PAD_S)
+        th.ghost_button(bar, "测试 API 连接", self._test_api,
+                        width=th.BTN_W_XL, height=30).grid(
+            row=0, column=2, sticky="w", padx=(0, th.PAD_S))
+        self.api_state = th.hint(bar, f"来源：{_api_source_text()}")
+        self.api_state.grid(row=0, column=3, sticky="e")
 
-        th.ghost_button(foot, "测试 API 连接", self._test_api, width=th.BTN_W_XL, height=30).grid(
-            row=0, column=0, sticky="w"
-        )
-        th.ghost_button(foot, "重新读取", self._reload_env, width=th.BTN_W_L, height=30).grid(
-            row=0, column=1, sticky="w", padx=th.PAD_S
-        )
-        self.api_state = th.hint(foot, f"配置文件：{_env_source_text()}")
-        self.api_state.grid(row=0, column=2, sticky="e")
+        th.hint(card, "三项都填好点「保存配置」即可，重启后依然生效。"
+                      "配置只保存在本机，不会上传，也不会写进日志。").grid(
+            row=len(rows) + 1, column=0, columnspan=3, sticky="w",
+            padx=th.PAD, pady=(th.PAD_S, 0))
 
         # 连接结果：3 行高的等宽小框
         self.api_detail = th.textbox(card, mono=True, height=72, wrap="word")
-        self.api_detail.grid(row=len(self.env_rows) + 2, column=0, columnspan=3,
-                             sticky="ew", padx=th.PAD, pady=(0, th.PAD))
+        self.api_detail.grid(row=len(rows) + 3, column=0, columnspan=3,
+                             sticky="ew", padx=th.PAD, pady=(th.PAD_S, th.PAD))
         self.api_detail.insert("1.0", "尚未测试。")
         self.api_detail.configure(state="disabled")
 
@@ -266,7 +297,7 @@ class SettingsPage(ctk.CTkFrame):
             row=0, column=0, sticky="w")
         th.ghost_button(bar, "清零", self._reset_usage, width=72, height=30).grid(
             row=0, column=1, sticky="w", padx=th.PAD_S)
-        self.token_path_label = th.hint(bar, f"统计文件：{cfg.usage_path()}")
+        self.token_path_label = th.hint(bar, f"统计文件：{cfg.display_path(cfg.usage_path())}")
         self.token_path_label.grid(row=0, column=2, sticky="e")
         self.refresh_usage()
 
@@ -275,7 +306,7 @@ class SettingsPage(ctk.CTkFrame):
         data = cfg.load_usage()
         for key, widget in self.token_values.items():
             widget.configure(text=f"{int(data.get(key) or 0):,}")
-        lines = [f"统计文件：{cfg.usage_path()}",
+        lines = [f"统计文件：{cfg.display_path(cfg.usage_path())}",
                  f"最近一次调用：{data.get('last_call_at') or '（无）'}"]
         by_model = data.get("by_model") or {}
         if by_model:
@@ -301,7 +332,7 @@ class SettingsPage(ctk.CTkFrame):
     def _reset_usage(self) -> None:
         if not dlg.confirm(self.app, "把 token 统计清零？", title="清零确认",
                            ok_text="清零", danger=True,
-                           detail=str(cfg.usage_path())):
+                           detail=cfg.display_path(cfg.usage_path())):
             return
         cfg.reset_usage()
         self.refresh_usage()
@@ -365,13 +396,33 @@ class SettingsPage(ctk.CTkFrame):
         return card
 
     @staticmethod
-    def _apply_env_state(state, present: bool) -> None:
-        """就地刷新字段状态徽章（``th.badge`` 返回的是裸 CTkLabel）。"""
-        fg, fg_text = th.tone_colors("success" if present else "danger")
-        state.configure(
-            text=f"\u2002{'已设置' if present else '缺失'}\u2002",
-            fg_color=fg, text_color=fg_text,
-        )
+    def _toggle_key(entry) -> None:
+        """密钥输入框「显示 ↔ 隐藏」切换（只影响屏幕上的显示）。"""
+        entry.configure(show="" if entry.cget("show") else API_MASK)
+
+    def _current_api(self) -> dict:
+        """三个输入框此刻的内容（去掉首尾空白）。"""
+        return {key: (var.get() or "").strip() for key, var in self.api_vars.items()}
+
+    def _save_api(self, announce: bool = True) -> bool:
+        """把三项写进 ``%APPDATA%\\Taofu\\config.json``；缺项时不写。"""
+        values = self._current_api()
+        empty = [label for key, label in cfg.API_FIELDS if not values.get(key)]
+        if empty:
+            self.api_state.configure(text="还差这几项：" + "、".join(empty))
+            if announce:
+                self.app.status("API 配置未保存：请先填完三项")
+            return False
+
+        self.app.set_api_config(values["api_base_url"], values["api_key"],
+                                values["api_model"])
+        ok = self.app.save_settings()
+        self.api_state.configure(
+            text="已保存 · 来源：设置页保存的配置" if ok else "保存失败：配置文件不可写")
+        if announce:
+            self.app.status("API 配置已保存" if ok else "API 配置保存失败")
+            self.app.log("API 配置已保存（本机配置文件）" if ok else "API 配置保存失败")
+        return ok
 
     def _pick_output(self) -> None:
         path = filedialog.askdirectory(
@@ -392,11 +443,14 @@ class SettingsPage(ctk.CTkFrame):
         self.app.log(f"默认输出目录 → {target}")
 
     def refresh_paths(self) -> None:
-        """外部改了配置（如旧版文件迁移）后，把本页显示的路径重新读一遍。"""
+        """外部改了配置（如旧版文件迁移）后，把本页显示的状态重新读一遍。"""
         try:
             self.out_var.set(str(self.app.settings.output_dir or ""))
-            self.api_state.configure(text=f"配置文件：{_env_source_text()}")
-            self.token_path_label.configure(text=f"统计文件：{cfg.usage_path()}")
+            for key, _label, value, _present in cfg.api_field_rows():
+                if key in self.api_vars:
+                    self.api_vars[key].set(value)
+            self.api_state.configure(text=f"来源：{_api_source_text()}")
+            self.token_path_label.configure(text=f"统计文件：{cfg.display_path(cfg.usage_path())}")
             self.refresh_usage()
         except Exception:  # noqa: BLE001 - 刷新失败不影响其它功能
             pass
@@ -414,37 +468,78 @@ class SettingsPage(ctk.CTkFrame):
     def _on_theme(self, choice: str) -> None:
         self.app.apply_theme(choice)
 
-    def _reload_env(self) -> None:
-        for key, _label, value, present in cfg.env_field_rows():
-            entry, state = self.env_rows[key]
-            entry.configure(state="normal")
-            entry.delete(0, "end")
-            entry.insert(0, value)
-            entry.configure(state="disabled")
-            self._apply_env_state(state, present)
-        self.api_state.configure(text=f"已重新读取：{_env_source_text()}")
-        self.app.log("重新读取 .env 字段")
+    def _open_url(self, url: str) -> None:
+        """用系统默认浏览器打开注册页。"""
+        try:
+            import webbrowser
+
+            webbrowser.open(url)
+        except Exception as exc:  # noqa: BLE001 - 打不开浏览器不影响取 Key
+            self.app.log(f"打开链接失败：{exc}")
+            dlg.info(self.app, "打不开浏览器，请手动在地址栏输入：", detail=url)
+
+    def _show_api_help(self) -> None:
+        """「如何获取 API Key？」：三家平台的注册与取 Key 步骤。"""
+        win = dlg.ModalWindow(self.app, "如何获取 API Key？", (620, 580), icon="🔑")
+        win.body.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            win.body,
+            text="AI 解析需要一把「API Key」，相当于程序的通行证。下面任选一家注册，"
+                 "复制 Key 后回到设置页填进三个框，点「保存配置」即可。"
+                 "只做本地规则解析（内置预设）的话，完全不填也能用。",
+            font=th.font(13), justify="left", anchor="w", wraplength=560,
+        ).grid(row=0, column=0, sticky="ew")
+
+        scroll = ctk.CTkScrollableFrame(win.body, fg_color="transparent", height=280)
+        scroll.grid(row=1, column=0, sticky="nsew", pady=(th.PAD_S, 0))
+        scroll.grid_columnconfigure(0, weight=1)
+
+        for i, (name, url, model, steps) in enumerate(API_HELP_LINKS):
+            box = th.plain(scroll)
+            box.grid(row=i, column=0, sticky="ew", pady=(0, th.PAD_S))
+            box.grid_columnconfigure(0, weight=1)
+            ctk.CTkLabel(box, text=name, font=th.font(14, "bold"), anchor="w").grid(
+                row=0, column=0, sticky="w", padx=th.PAD, pady=(th.PAD_S, 0)
+            )
+            ctk.CTkLabel(box, text=f"常用模型：{model}", font=th.font(12),
+                         anchor="w").grid(row=1, column=0, sticky="w", padx=th.PAD)
+            ctk.CTkLabel(box, text=steps, font=th.font(12), justify="left", anchor="w",
+                         wraplength=500).grid(
+                row=2, column=0, sticky="ew", padx=th.PAD, pady=(2, th.PAD_S)
+            )
+            th.ghost_button(box, "打开注册页", lambda u=url: self._open_url(u),
+                            width=th.BTN_W_L, height=28).grid(
+                row=0, column=1, rowspan=2, padx=(0, th.PAD), pady=(th.PAD_S, 0)
+            )
+
+        ctk.CTkLabel(
+            win.body,
+            text="小提示：Key 只存在你自己电脑上的 config.json 里，不会上传到任何服务器。"
+                 "如果测试连接报 401 / 鉴权失败，多半是 Key 少复制了字符，或地址填错了。",
+            font=th.font(12), justify="left", anchor="w", wraplength=560,
+            text_color=th.TEXT_MUTED,
+        ).grid(row=2, column=0, sticky="ew", pady=(th.PAD_S, 0))
+        th.primary_button(win.body, "知道了", win.destroy, width=th.BTN_W_XL).grid(
+            row=3, column=0, pady=(th.PAD_S, 0)
+        )
 
     def _test_api(self) -> None:
-        """真发一次短请求（只回复 OK），显示延迟 + token 用量。"""
+        """先保存当前三项，再真发一次短请求（只回复 OK），显示延迟 + token 用量。"""
         if self._testing:
             self.api_state.configure(text="上一次测试还在进行中…")
             return
 
         lines = []
-        rows = cfg.env_field_rows()
-        present = {key: ok for key, _l, _v, ok in rows}
-        for key, label, value, ok in rows:
-            lines.append(f"· {label}（{key}）：{'✅ 已设置' if ok else '❌ 缺失'}"
-                         + (f" → {value}" if ok and key != "OPENAI_API_KEY" else ""))
-        if not all(present.values()):
+        for key, label in cfg.API_FIELDS:
+            value = (self.api_vars[key].get() or "").strip()
+            shown = (cfg.mask_secret(value) if key == "api_key"
+                     else (value or "（未填）"))
+            lines.append(f"· {label}：{'✅' if value else '❌'} {shown}")
+        if not self._save_api(announce=False):
             lines.append("")
-            lines.append("结论：字段不齐，无法发起真实请求。请按下面的路径补齐后点「重新读取」。")
-            lines.append(f"  · 配置文件（exe 同级）：{cfg.ENV_TARGET_PATH}")
-            lines.append(f"  · 模板：{cfg.ENV_EXAMPLE_PATH}"
-                         + ("（已附在程序目录里）" if cfg.ENV_EXAMPLE_PATH.is_file() else "（未找到，可手写三行 KEY=VALUE）"))
-            lines.append("  · 也可以不建文件，直接设 OPENAI_BASE_URL / OPENAI_API_KEY / "
-                         "OPENAI_MODEL 三个环境变量（环境变量优先级最高）。")
+            lines.append("结论：三项没填齐，无法发起真实请求。")
+            lines.append("  · 点上方「如何获取 API Key？」看看怎么申请。")
             self._show_api_detail("\n".join(lines))
             self.api_state.configure(text="缺少 API 配置")
             return

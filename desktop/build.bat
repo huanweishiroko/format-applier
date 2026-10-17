@@ -3,16 +3,25 @@ chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 rem ===========================================================================
-rem  Word 格式助手 · 打包脚本（Phase 4）
-rem  用法：在本机终端手动执行（不要在受限的 DSH 会话里跑）
-rem      cd E:\dsh_plugins\word-format-applier\desktop
+rem  Taofu - Windows packaging script, PyInstaller onedir
+rem
+rem  Usage - run it yourself in a normal terminal:
+rem      cd <the folder this file is in>
 rem      .\build.bat
-rem  产物：desktop\dist\Word格式助手\Word格式助手.exe
-rem  注意：本文件必须是 CRLF 换行、无 BOM，否则 cmd 解析 if(...) 块会出错。
-rem        中文路径一律交给 Python 的 shutil 处理，cmd 的 move/rmdir 不碰中文。
+rem
+rem  Output: desktop\dist\<AppName>\<AppName>.exe
+rem
+rem  KEEP THIS FILE PURE ASCII, CRLF, NO BOM.
+rem  cmd.exe decodes .bat bytes with the active code page, so a non-ASCII
+rem  literal here - above all inside python -c "..." - gets mangled. The app
+rem  name is CJK, therefore this script never spells it out and never touches
+rem  the CJK output path itself: build_finish.py does all of that, discovering
+rem  the folder by scanning dist\. See the header of that file.
+rem
+rem  dist\ is never wiped - it may hold release archives.
 rem ===========================================================================
 
-set "PROJ=E:\dsh_plugins\word-format-applier"
+for %%I in ("%~dp0..") do set "PROJ=%%~fI"
 set "PYTHON=%PROJ%\.venv\Scripts\python.exe"
 set "TEMP=%PROJ%\.venv\pip-tmp"
 set "TMP=%TEMP%"
@@ -20,25 +29,25 @@ cd /d "%~dp0"
 if not exist "%TEMP%" mkdir "%TEMP%" >nul 2>&1
 
 if not exist "%PYTHON%" (
-    echo [错误] 找不到解释器：%PYTHON%
-    echo        请确认 .venv 存在，或改 build.bat 里的 PYTHON 变量。
+    echo [ERROR] Interpreter not found: %PYTHON%
+    echo         Check .venv, or edit the PYTHON variable in this script.
     pause
     exit /b 1
 )
 
-echo [0/4] 环境
+echo [0/4] Environment
 echo        PYTHON = %PYTHON%
 echo        TEMP   = %TEMP%
+echo        CWD    = %CD%
 echo.
 
-echo [1/4] 检查 PyInstaller...
+echo [1/4] Checking PyInstaller ...
 "%PYTHON%" -m PyInstaller --version
 if errorlevel 1 (
-    echo        未安装，正在用 pip 安装（走 %TEMP%，首次会拉几 MB bootloader）...
+    echo        Not installed. Installing with pip into %TEMP% - first run pulls a few MB ...
     "%PYTHON%" -m pip install pyinstaller
     if errorlevel 1 (
-        echo [错误] pyinstaller 安装失败。把上面的原始输出发给排障方，或手动执行：
-        echo        "%PYTHON%" -m pip install pyinstaller
+        echo [ERROR] pip install pyinstaller failed. Send the output above to whoever debugs this.
         pause
         exit /b 1
     )
@@ -46,58 +55,35 @@ if errorlevel 1 (
 )
 echo.
 
-echo [2/4] 打包中（onedir + windowed，首次约 1-3 分钟）...
-"%PYTHON%" -m PyInstaller --noconfirm --clean WordFormatAssistant.spec
+echo [2/4] Building - onedir + windowed, first run takes 1 to 3 minutes ...
+"%PYTHON%" -m PyInstaller --noconfirm --clean Taofu.spec
 if errorlevel 1 (
-    echo [错误] 打包失败。把上面的原始输出（尤其最后 30 行）发给排障方。
-    echo        常见原因：pyinstaller 版本过老 / _internal 被占用 / 杀毒拦截写入。
+    echo [ERROR] PyInstaller failed. Read the last 30 lines above.
+    echo         Common causes: pyinstaller too old / _internal locked / antivirus blocking writes.
     pause
     exit /b 1
 )
 echo.
 
-echo [3/4] 收尾：预设归位、放 .env 模板、清理 build\ ...
-if not exist "dist\Word格式助手" (
-    echo [错误] 没有生成 dist\Word格式助手，打包可能被中断。
+echo [3/4] Finishing: relocate presets, copy .env, locate the exe ...
+"%PYTHON%" "%~dp0build_finish.py"
+if errorlevel 1 (
+    echo [ERROR] build_finish.py failed - see the output above.
     pause
     exit /b 1
 )
-rem spec 已把预设指向 exe 同级；这里再兜一次底：万一仍落在 _internal\presets，
-rem 就搬出来。整段交给 Python —— cmd 的 move 遇到中文路径会报
-rem "'...\presets' is not recognized as an internal or external command"。
-"%PYTHON%" -c "import shutil,os;p=r'dist\Word格式助手';s=os.path.join(p,'_internal','presets');d=os.path.join(p,'presets');shutil.rmtree(d,True) if os.path.isdir(d) else None;shutil.move(s,d) if os.path.isdir(s) else None" >nul 2>&1
-if errorlevel 1 (
-    echo [警告] 预设归位脚本没跑起来（见上一行的报错）。
-)
-if not exist "dist\Word格式助手\presets\格式要求1.txt" (
-    if not exist "dist\Word格式助手\_internal\presets\格式要求1.txt" (
-        echo [警告] 两处都没有内置预设 —— 首页下拉框会是空的。
-    ) else (
-        echo [警告] 内置预设仍在 _internal\presets\（程序自己能兜住，但 cli 自检可能为 0）。
-    )
-)
-rem .env.example 必须放在 **exe 同级** —— 新版的 .env 就在那儿读（旧版 _internal 仍兼容）。
-if exist ".env.example" copy /Y ".env.example" "dist\Word格式助手\.env.example" >nul
 if exist "build" rmdir /S /Q "build" >nul 2>&1
 echo.
 
-echo [4/4] 完成
-if not exist "dist\Word格式助手\Word格式助手.exe" (
-    echo [错误] 没看到 Word格式助手.exe。
-    pause
-    exit /b 1
-)
-for %%f in ("dist\Word格式助手\Word格式助手.exe") do echo        exe：%%~ff  ^(%%~zf 字节^)
-echo        目录：%~dp0dist\Word格式助手\
+echo [4/4] Done
 echo.
-echo 自检（不开界面；count 应为 4）：
-echo        dist\Word格式助手\Word格式助手.exe --wfa-cli --list-presets-json
+echo Next steps:
+echo   1^) Double-click the exe printed above.
+echo   2^) User data - config.json / presets / usage.json - sits under %%APPDATA%%\Taofu\
+echo   3^) AI parsing needs an API key: fill it in Settings - API settings - Save.
+echo   4^) To override built-in presets, drop a presets\ folder next to the exe.
 echo.
-echo 下一步：
-echo   1^) 双击 dist\Word格式助手\Word格式助手.exe
-echo   2^) 需要 AI 解析格式要求时：把 exe 同级的 .env.example 改名 .env（同目录）并填 key
-echo   3^) 换内置预设：在 exe 同级放 presets\（优先级高于 _internal\presets\）
-echo   4^) 用户数据（config.json / presets / usage.json）在 %%APPDATA%%\WordFormatAssistant\
+echo NOTE: never ship a .env that holds a real API key - build_finish copies only the template.
 echo.
 pause
 endlocal

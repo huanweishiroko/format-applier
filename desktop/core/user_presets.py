@@ -3,10 +3,10 @@
 
 存放位置::
 
-    %APPDATA%\\WordFormatAssistant\\presets\\user_<YYYYMMDD_HHMMSS>_<名字>.txt
+    %APPDATA%\\Taofu\\presets\\user_<YYYYMMDD_HHMMSS>_<名字>.txt
 
 根目录由 ``core/config.py`` 统一解析（APPDATA 缺失时降级到
-``~/.word_format_assistant/presets/``），与 config.json、usage.json 同根。
+``~/.taofu/presets/``），与 config.json、usage.json 同根。
 
 命名规则把"时间戳"写进文件名，好处是：
   * 同一秒之外的任何两次保存都不会互相覆盖；
@@ -47,11 +47,11 @@ def _config_module():
 
 
 def _fallback_dir() -> Path:
-    return Path.home() / ".word_format_assistant" / "presets"
+    return Path.home() / ".taofu" / "presets"
 
 
 def user_data_dir(create: bool = True) -> Path:
-    """``%APPDATA%\\WordFormatAssistant``（config.json / usage.json 也在这里）。
+    """``%APPDATA%\\Taofu``（config.json / usage.json 也在这里）。
 
     真正的解析在 ``core/config.py::user_data_dir()``，这里只是它的界面版
     （默认 ``create=True``，失败不抛）。

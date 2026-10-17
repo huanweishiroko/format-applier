@@ -32,9 +32,9 @@ COLUMNS = ((0, "预设名", 3), (1, "来源", 1), (2, "修改时间", 2), (3, "�
 
 #: 写 presets/ 被系统拒绝时的统一说明
 WRITE_BLOCKED_HINT = (
-    "该目录对当前进程只读（Windows 返回 Access Denied）。请用文件资源管理器手动操作，"
-    "或在管理员 PowerShell 中执行：\n"
-    r'icacls "E:\dsh_plugins\word-format-applier\presets" /grant "%USERNAME%":(OI)(CI)F'
+    "该目录对当前进程只读（Windows 返回 Access Denied）。\n"
+    "· 内置预设放在程序目录下的 presets\\ 里：请用文件资源管理器手动复制或删除；\n"
+    "· 也可以改用「用户预设」——它保存在你自己的账户目录下，无需管理员权限。"
 )
 
 
@@ -174,7 +174,7 @@ class PresetManagerPage(ctk.CTkFrame):
     def view(self, preset: pl.Preset) -> None:
         body = pl.read_preview(preset)
         note = (f"文件：{preset.file} · {preset.size_label} · 修改于 {preset.mtime_label}\n"
-                f"以下为文件原文（Phase 2 不做规则解析，解析结果在 Phase 3 展示）")
+                f"以下为文件的原始内容：")
         dlg.text_editor(self.app, f"查看预设 · {preset.name}", body,
                         editable=False, note=note)
         self.app.log(f"查看预设：{preset.file}")

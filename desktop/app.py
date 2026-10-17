@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Word 格式处理 · 桌面外壳（Phase 2：GUI 骨架 + 假数据）。
+"""桃符 · 桌面外壳（Phase 2：GUI 骨架 + 假数据）。
 
 运行：
     .venv\\Scripts\\python.exe desktop\\app.py
@@ -192,9 +192,9 @@ def wfa_cli_detect() -> Optional[str]:
     * 开发期：真正调一次 ``--list-presets-json`` 验证 .venv + src 可用。
     """
     if br.frozen():
-        return f"{sys.executable} {WFA_CLI_DETECT_HOOK}（打包模式）"
+        return "已启用（内置）"
     if br.cli_available():
-        return br.describe_entry()
+        return "已启用（开发模式）"
     return None
 
 
@@ -208,6 +208,20 @@ class FormatApp(ctk.CTk):
 
     def __init__(self) -> None:
         super().__init__()
+
+        # 窗口/任务栏图标（v2.0.0）：只读资源，frozen 走 _MEIPASS、开发期走 desktop/assets。
+        # 图标缺失或 Tk 不认这个 .ico 都不该拦住启动，所以整体吞异常，只把结果记进启动日志。
+        # 日志里只说"成没成"，不打印本机绝对路径（用户看了也没用）。
+        self.icon_status = "未设置"
+        try:
+            _icon = cfg.asset_path("taofu.ico")
+            if _icon.is_file():
+                self.iconbitmap(str(_icon))
+                self.icon_status = "已加载"
+            else:
+                self.icon_status = "未找到图标文件"
+        except Exception as exc:  # noqa: BLE001 - 图标失败不影响主流程
+            self.icon_status = f"加载失败（{type(exc).__name__}）"
 
         # 先备好 log() 依赖的容器：万一下面写配置文件失败，log() 不能反过来炸
         self.presets: List[pl.Preset] = []
@@ -226,7 +240,7 @@ class FormatApp(ctk.CTk):
             self.save_settings()
         self.cli_entry = wfa_cli_detect()
 
-        self.title(f"{cfg.APP_NAME} · {cfg.APP_VERSION}")
+        self.title(f"{cfg.APP_NAME} · v{cfg.APP_VERSION}")
         self.geometry(self.settings.window_size)
         self.minsize(860, 600)
         self.grid_columnconfigure(1, weight=1)
@@ -255,9 +269,11 @@ class FormatApp(ctk.CTk):
         self.bind("<Control-q>", lambda _e: self.on_close())
 
         self.after(80, self._boot)
-        self.log(f"{cfg.APP_NAME} {cfg.APP_VERSION} · {cfg.PHASE_LABEL}")
+        self.log(f"{cfg.APP_NAME} v{cfg.APP_VERSION} · {cfg.PHASE_LABEL}")
+        self.log(f"窗口图标：{self.icon_status}")
         self.log(f"拖放能力：{'已注入' if self.dnd_available else '不可用（降级为点击选择）'}")
-        self.log(f"插件 CLI 钩子：{self.cli_entry or '未启用（Phase 3 接入）'}")
+        self.log(f"文档处理引擎：{self.cli_entry or '不可用（只读预览）'}")
+        self.log(f"AI 解析配置：{cfg.api_source_label()}")
 
     # ------------------------------------------------------------------ #
     # 布局
@@ -274,7 +290,7 @@ class FormatApp(ctk.CTk):
 
         brand = th.plain(bar)
         brand.grid(row=0, column=0, sticky="ew", padx=th.PAD, pady=(th.PAD_L, th.PAD))
-        ctk.CTkLabel(brand, text="▸ 格式助手", font=th.font(th.FS.H2, "bold"),
+        ctk.CTkLabel(brand, text="▸ 桃符", font=th.font(th.FS.H2, "bold"),
                      text_color=th.TEXT, anchor="w").grid(row=0, column=0, sticky="w")
         ctk.CTkLabel(brand, text="桌面版外壳", font=th.font(th.FS.SMALL), anchor="w",
                      text_color=th.TEXT_MUTED).grid(row=1, column=0, sticky="w")
@@ -320,7 +336,7 @@ class FormatApp(ctk.CTk):
         ctk.CTkLabel(footer, text=f"v{cfg.APP_VERSION}", font=th.font(th.FS.CAPTION), anchor="w",
                      text_color=th.TEXT_MUTED).grid(row=0, column=0, sticky="w",
                                                     padx=th.PAD_S, pady=(th.SP.XS, 0))
-        ctk.CTkLabel(footer, text="Phase 3 · 真实处理", font=th.font(th.FS.CAPTION), anchor="w",
+        ctk.CTkLabel(footer, text=cfg.PHASE_LABEL, font=th.font(th.FS.CAPTION), anchor="w",
                      text_color=th.TEXT_MUTED).grid(row=1, column=0, sticky="w",
                                                     padx=th.PAD_S, pady=(0, th.SP.XS))
 
@@ -675,6 +691,12 @@ class FormatApp(ctk.CTk):
         self.settings.output_dir = path
         self.save_settings()
 
+    def set_api_config(self, base_url: str, api_key: str, model: str) -> None:
+        """设置页「保存配置」：三项 API 配置先记在内存，落盘由 save_settings 完成。"""
+        self.settings.api_base_url = (base_url or "").strip()
+        self.settings.api_key = (api_key or "").strip()
+        self.settings.api_model = (model or "").strip()
+
     def apply_theme(self, theme: str) -> None:
         if theme not in cfg.THEME_CHOICES:
             return
@@ -685,10 +707,14 @@ class FormatApp(ctk.CTk):
         self.log(f"主题切换 → {theme}")
         self.status(f"主题已切换为「{theme}」")
 
-    def save_settings(self) -> None:
+    def save_settings(self) -> bool:
+        """写 config.json；失败时只提示、不抛异常（返回是否成功）。"""
         if not cfg.save_settings(self.settings):
-            self.log(f"配置保存失败（不可写）：{cfg.CONFIG_PATH}")
-            self.status(f"配置保存失败：{cfg.CONFIG_PATH}")
+            where = cfg.display_path(cfg.CONFIG_PATH)
+            self.log(f"配置保存失败（不可写）：{where}")
+            self.status(f"配置保存失败：{where}")
+            return False
+        return True
 
     # ------------------------------------------------------------------ #
     # 生命周期
@@ -713,8 +739,7 @@ class FormatApp(ctk.CTk):
         else:
             self.log("没有找到可用预设（presets/ 与用户预设目录都是空的）")
             self.status("就绪 · 未找到预设")
-        self.log(f"CLI 入口：{br.describe_entry()}")
-        self.log(f"用户预设目录：{pl.user_presets_dir()}")
+        self.log(f"用户预设目录：{cfg.display_path(pl.user_presets_dir())}")
         self.check_legacy_files()
 
     # ------------------------------------------------------------------ #
@@ -781,7 +806,7 @@ class FormatApp(ctk.CTk):
 def run_selftest() -> int:
     """把界面关键路径跑一遍（含弹窗），最后自动退出。
 
-    会在**用户预设目录**（%APPDATA%\\WordFormatAssistant\\presets）里真实创建并删除
+    会在**用户预设目录**（%APPDATA%\\Taofu\\presets）里真实创建并删除
     一个名为「自检临时预设」的文件，用于验证保存/可见/删除路径；
     项目里的 presets/ 只读不写。
     """
@@ -920,11 +945,39 @@ def run_selftest() -> int:
     return 0
 
 
+def _claim_taskbar_identity() -> None:
+    """给本进程一个独立的 AppUserModelID，任务栏才会认我们的窗口图标。
+
+    不设的话，开发期直接跑 ``python.exe desktop\\app.py`` 时 Windows 按 python.exe
+    的身份分组，任务栏按钮显示的是 python 的图标而不是桃符的 —— 与 .ico 本身无关。
+    打包成 exe 后图标来自 exe 资源，本来就没这个问题；这里是为了让开发期也能验。
+    纯 stdlib（ctypes），失败一律吞掉，不影响启动。
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Taofu.Desktop")
+    except Exception:  # noqa: BLE001 - 拿不到身份就算了
+        pass
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+
+    # 越早越好：必须在创建任何顶层窗口之前，任务栏才会按新身份归组
+    _claim_taskbar_identity()
+
+    # v2.0.0 一次性迁移：旧版 %APPDATA%\WordFormatAssistant → %APPDATA%\Taofu。
+    # 必须排在**任何 load_settings() 之前**；只复制不删旧目录，失败也只记一行、不拦启动。
+    _migrate_note = cfg.migrate_legacy_data()
+
     if "--selftest" in args:
         return run_selftest()
     app = FormatApp()
+    if _migrate_note:
+        app.log(_migrate_note)
     app.mainloop()
     return 0
 

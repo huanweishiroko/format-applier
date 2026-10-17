@@ -5,18 +5,19 @@
 
 职责：
   * 定位程序本体目录、项目根（desktop/ 的上一级）与关键目录（presets/、src/、.venv/）
-  * 定位 .env（**exe 同级**优先）与 config.json（**%APPDATA%\\WordFormatAssistant**）
-  * 读写 config.json（默认输出目录、主题、窗口尺寸等用户偏好）
-  * 只读展示 .env / 环境变量中的 API 配置，密钥一律脱敏
+  * 定位 config.json（**%APPDATA%\\Taofu**）与 .env（**exe 同级**，老用户兼容）
+  * 读写 config.json（默认输出目录、主题、窗口尺寸、API 地址/密钥/模型等用户偏好）
+  * 提供 API 配置的读取与来源说明；密钥展示一律脱敏
 
 路径布局（Phase 5 起）
 --------------------
 ============================  ==================================================
+``config.json``               ``%APPDATA%\\Taofu\\config.json``（含 API 配置三项）
 ``.env``                      **exe 同级**（开发期 = ``desktop\\.env``）；
-                              旧版 ``_internal\\.env`` 仍可被读到（兼容，不报错）
-``.env.example``              exe 同级（打包时由 build.bat 复制，提示用户怎么配）
-``config.json``               ``%APPDATA%\\WordFormatAssistant\\config.json``
-默认输出目录                  ``%USERPROFILE%\\Documents\\WordFormatAssistant\\``
+                              老用户兼容，新用户不需要；旧版 ``_internal\\.env``
+                              仍可被读到（兼容，不报错）
+``.env.example``              exe 同级（打包时由 build_finish.py 放一份模板）
+默认输出目录                  ``%USERPROFILE%\\Documents\\Taofu\\``
 内置预设                      ``<exe 同级>\\presets\\`` → ``_internal\\presets\\`` → ``<项目根>\\presets\\``
 ============================  ==================================================
 
@@ -30,6 +31,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import shutil
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -77,6 +79,19 @@ def _internal_dir() -> Optional[Path]:
     """PyInstaller 的 _MEIPASS（onedir 下 = exe 同级的 _internal\\）。"""
     raw = getattr(sys, "_MEIPASS", None)
     return Path(str(raw)) if raw else None
+
+
+def asset_path(name: str) -> Path:
+    """只读资源（图标等）的定位：开发期在 desktop/assets/，frozen 后在 _MEIPASS/assets/。
+
+    spec 会把整个 desktop/assets 铺进 _internal/assets（见 Taofu.spec），所以这里
+    frozen 走 `_internal_dir()`，**不要**用 APP_DIR —— exe 同级没有 assets。
+    返回的路径不保证存在，调用方自己 try/except 兜底。
+    """
+    internal = _internal_dir()
+    if frozen() and internal is not None:
+        return internal / "assets" / name
+    return APP_DIR / "assets" / name
 
 
 # --------------------------------------------------------------------------- #
@@ -134,17 +149,17 @@ ENV_EXAMPLE_PATH: Path = APP_DIR / ".env.example"
 
 
 # --------------------------------------------------------------------------- #
-# 用户数据目录 %APPDATA%\WordFormatAssistant\（config.json / presets / usage.json）
+# 用户数据目录 %APPDATA%\Taofu\（config.json / presets / usage.json）
 # --------------------------------------------------------------------------- #
 
 
 def user_data_dir(create: bool = False) -> Path:
-    """用户数据根目录；``%APPDATA%`` 缺失（罕见）时降级到 ``~/.word_format_assistant``。
+    """用户数据根目录；``%APPDATA%`` 缺失（罕见）时降级到 ``~/.taofu``。
 
     config.json、presets\\、usage.json 三者都挂在这个根下面，保持一致。
     """
     appdata = (os.environ.get("APPDATA") or "").strip()
-    base = Path(appdata) / "WordFormatAssistant" if appdata else Path.home() / ".word_format_assistant"
+    base = Path(appdata) / "Taofu" if appdata else Path.home() / ".taofu"
     if create:
         try:
             base.mkdir(parents=True, exist_ok=True)
@@ -153,8 +168,32 @@ def user_data_dir(create: bool = False) -> Path:
     return base
 
 
+def display_path(path: "str | Path") -> str:
+    """把本机绝对路径换成用户看得懂的短写法。
+
+    界面/日志里不该出现一长串夹带用户名的 AppData 绝对路径，
+    统一显示成 ``%APPDATA%\\Taofu\\config.json``；
+    家目录下的路径显示成 ``%USERPROFILE%\\...``；其它路径原样返回。
+    """
+    raw = str(path or "")
+    if not raw:
+        return ""
+    try:
+        target = Path(raw)
+        for base, token in ((user_data_dir(), "%APPDATA%\\Taofu"),
+                            (Path.home(), "%USERPROFILE%")):
+            try:
+                rel = target.relative_to(base)
+            except ValueError:
+                continue
+            return token + ("\\" + str(rel) if str(rel) not in ("", ".") else "")
+    except (OSError, ValueError):
+        pass
+    return raw
+
+
 def config_path() -> Path:
-    """config.json 路径（``%APPDATA%\\WordFormatAssistant\\config.json``）。"""
+    """config.json 路径（``%APPDATA%\\Taofu\\config.json``）。"""
     return user_data_dir() / "config.json"
 
 
@@ -165,6 +204,52 @@ CONFIG_PATH: Path = config_path()
 LEGACY_CONFIG_CANDIDATES: Tuple[Path, ...] = (
     (_internal_dir() / "config.json",) if _internal_dir() is not None else ()
 )
+
+
+#: 旧版用户数据目录名（v1.x 用的）；只在 migrate_legacy_data() 里出现
+LEGACY_DATA_DIRNAME = "WordFormatAssistant"
+
+
+def legacy_user_data_dir() -> Path:
+    """旧版用户数据根目录（%APPDATA%/WordFormatAssistant，APPDATA 缺失时 ~/.word_format_assistant）。"""
+    appdata = (os.environ.get("APPDATA") or "").strip()
+    if appdata:
+        return Path(appdata) / LEGACY_DATA_DIRNAME
+    return Path.home() / ".word_format_assistant"
+
+
+def migrate_legacy_data() -> Optional[str]:
+    """把旧版用户数据从 WordFormatAssistant 目录搬到 Taofu 目录（v2.0.0 一次性迁移）。
+
+    触发条件（两条都满足才动手）：新目录**不存在** + 旧目录存在。
+    迁移内容：config.json、usage.json、presets/。
+    **只复制不删除** —— 旧目录原样保留作备份，用户反悔了还能自己翻回来。
+
+    返回一行摘要（给启动日志用）；没触发 / 没内容可搬 / 出错都返回 None，
+    绝不抛异常阻断启动。必须在 ``load_settings()`` 之前调用一次。
+    """
+    new_dir = user_data_dir()
+    old_dir = legacy_user_data_dir()
+    if new_dir.exists() or not old_dir.is_dir():
+        return None
+
+    copied: List[str] = []
+    try:
+        new_dir.mkdir(parents=True, exist_ok=True)
+        for name in ("config.json", "usage.json"):
+            src = old_dir / name
+            if src.is_file():
+                shutil.copy2(src, new_dir / name)
+                copied.append(name)
+        src_presets = old_dir / "presets"
+        if src_presets.is_dir():
+            shutil.copytree(src_presets, new_dir / "presets", dirs_exist_ok=True)
+            copied.append("presets/")
+    except OSError as exc:              # 权限不足 / 磁盘满：只报告，不阻断启动
+        return f"旧用户数据迁移失败：{exc}"
+    if not copied:
+        return None
+    return f"已迁移旧用户数据 -> {new_dir}（{'、'.join(copied)}；旧目录保留作备份）"
 
 
 def _has_preset_files(folder: Path) -> bool:
@@ -204,11 +289,12 @@ def resolve_presets_dir() -> Path:
 #: 内置预设目录（探测结果；`presets_dir()` 是同一件事的函数形式）
 PRESETS_DIR: Path = resolve_presets_dir()
 
-APP_NAME = "Word 格式处理"
-APP_VERSION = "0.4.0"
-PHASE_LABEL = "Phase 5 · 用户数据路径整理"
+APP_NAME = "桃符"
+APP_VERSION = "2.0.0"
+PHASE_LABEL = "正式版"
 
-#: 设置页只读展示的 .env 字段（顺序即展示顺序）
+#: 老版 .env 的三项（兼容保留）：新用户请在设置页填写，不需要碰 .env。
+#: 只有 config.json 里没有 API 配置时，才会回落到它们。
 ENV_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("OPENAI_BASE_URL", "API 地址"),
     ("OPENAI_API_KEY", "API 密钥"),
@@ -240,6 +326,11 @@ class Settings:
     window_size: str = "1080x720"
     last_preset: str = ""
     log_expanded: bool = False
+    #: AI 解析配置：设置页填三项并点「保存配置」后写进 config.json。
+    #: 只有 config.json 里**缺**这些字段时才回落到 exe 同级的 .env（兼容老用户）。
+    api_base_url: str = ""
+    api_key: str = ""
+    api_model: str = ""
     extra: Dict[str, Any] = field(default_factory=dict)
     #: 运行时标记（不落盘）：本次是首次启动，输出目录还是默认值
     first_run: bool = False
@@ -278,10 +369,10 @@ def _documents_dir() -> Path:
 def default_output_dir() -> Path:
     """默认输出目录（用户可见、不埋在 _internal）。
 
-    首选 ``%USERPROFILE%\\Documents\\WordFormatAssistant\\``；建不出来时退回
+    首选 ``%USERPROFILE%\\Documents\\Taofu\\``；建不出来时退回
     用户的「文档」目录本身（不抛异常）。
     """
-    preferred = _documents_dir() / "WordFormatAssistant"
+    preferred = _documents_dir() / "Taofu"
     try:
         preferred.mkdir(parents=True, exist_ok=True)
         return preferred
@@ -319,7 +410,7 @@ def _read_json_dict(target: Path) -> Dict[str, Any]:
 
 
 def load_settings(path: Optional[Path] = None) -> Settings:
-    """读 ``%APPDATA%\\WordFormatAssistant\\config.json``，缺字段用默认值。
+    """读 ``%APPDATA%\\Taofu\\config.json``，缺字段用默认值。
 
     ``path`` 显式给定时只读那个文件（单测用）。未显式给定时：
       1. 新位置有 → 读新的；
@@ -470,12 +561,81 @@ def env_field_rows(path: Optional[Path] = None) -> List[Tuple[str, str, str, boo
 
 
 # --------------------------------------------------------------------------- #
-# Token 用量统计（%APPDATA%\WordFormatAssistant\usage.json）
+# API 配置（设置页填写 → %APPDATA%\Taofu\config.json）
+# --------------------------------------------------------------------------- #
+
+#: 设置页三行输入框：(Settings 字段名, 中文标签)，顺序即展示顺序
+API_FIELDS: Tuple[Tuple[str, str], ...] = (
+    ("api_base_url", "API 地址（Base URL）"),
+    ("api_key", "API 密钥（API Key）"),
+    ("api_model", "模型名称（Model）"),
+)
+
+#: Settings 字段 ←→ 老版 .env 变量名（只读兼容，新用户不需要碰 .env）
+API_ENV_ALIAS: Dict[str, str] = {
+    "api_base_url": "OPENAI_BASE_URL",
+    "api_key": "OPENAI_API_KEY",
+    "api_model": "OPENAI_MODEL",
+}
+
+
+def api_config_values(path: Optional[Path] = None) -> Dict[str, str]:
+    """只读 ``config.json`` 里的三项 API 配置（设置页保存的那份）。
+
+    ``path`` 显式给定时只读那个文件（单测/迁移用）。缺失的字段返回空串，
+    不抛异常——配置文件损坏也不该拦住启动。
+    """
+    data = _read_json_dict(Path(path) if path is not None else CONFIG_PATH)
+    values: Dict[str, str] = {}
+    for key, _label in API_FIELDS:
+        raw = data.get(key)
+        values[key] = _clean_env_value(str(raw)) if raw is not None else ""
+    return values
+
+
+def api_configured(values: Optional[Dict[str, str]] = None) -> bool:
+    """三项是否都已填（不校验连通性）。"""
+    data = api_config_values() if values is None else values
+    return all(str(data.get(key) or "").strip() for key, _label in API_FIELDS)
+
+
+def api_field_rows(path: Optional[Path] = None) -> List[Tuple[str, str, str, bool]]:
+    """设置页输入框的初始值，返回 ``[(字段名, 中文标签, 值, 是否已有值)]``。
+
+    取值顺序：**config.json**（设置页保存的）→ 老版 ``.env`` / 环境变量。
+    老用户只配过 ``.env`` 时也能被带进输入框，点一次「保存配置」就迁移过来。
+    返回值是**原值**（是否遮蔽密钥由界面决定）。
+    """
+    saved = api_config_values(path)
+    legacy, _source = env_values()
+    rows: List[Tuple[str, str, str, bool]] = []
+    for key, label in API_FIELDS:
+        value = _clean_env_value(saved.get(key) or legacy.get(API_ENV_ALIAS[key], ""))
+        rows.append((key, label, value, bool(value)))
+    return rows
+
+
+def api_source_label(path: Optional[Path] = None) -> str:
+    """本次 API 配置实际来自哪儿——一句人话，供设置页/关于页显示。"""
+    saved = api_config_values(path)
+    legacy, source = env_values()
+    if all(saved.get(key) for key, _label in API_FIELDS):
+        return "设置页保存的配置"
+    if all(legacy.get(API_ENV_ALIAS[key]) for key, _label in API_FIELDS):
+        name = ".env 文件" if source is not None else "环境变量"
+        return f"{name}（老版本配置，建议点「保存配置」迁移到设置页）"
+    if any(saved.get(key) or legacy.get(API_ENV_ALIAS[key]) for key, _label in API_FIELDS):
+        return "只填了一部分，尚未可用"
+    return "尚未配置"
+
+
+# --------------------------------------------------------------------------- #
+# Token 用量统计（%APPDATA%\Taofu\usage.json）
 # --------------------------------------------------------------------------- #
 
 
 def usage_path() -> Path:
-    """usage.json 路径；APPDATA 缺失时降级到 ~/.word_format_assistant/。"""
+    """usage.json 路径；APPDATA 缺失时降级到 ~/.taofu/。"""
     return user_data_dir() / "usage.json"
 
 

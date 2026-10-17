@@ -219,7 +219,7 @@ class HomePage(ctk.CTkFrame):
         )
         th.hint(
             head,
-            "把 .docx 拖进来，选一个格式要求预设，剩下的交给 Word 格式处理插件。",
+            "把 .docx 拖进来，选一个格式要求预设，剩下的交给桃符的格式处理引擎。",
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
         self._build_steps(head)
@@ -738,7 +738,7 @@ class HomePage(ctk.CTkFrame):
         th.ghost_button(row, "浏览", self.choose_output_dir, width=56, height=34).grid(
             row=0, column=1, padx=(th.PAD_S, 0)
         )
-        th.hint(card, "默认存到「文档\\WordFormatAssistant」，改完立即记住（设置页可看完整路径）").grid(
+        th.hint(card, "默认存到「文档\\Taofu」，改完立即记住（设置页可看完整路径）").grid(
             row=6, column=0, sticky="w", padx=th.PAD, pady=(4, th.PAD)
         )
         self.out_var.trace_add("write", lambda *_: self.app.set_output_dir(self.out_var.get()))
@@ -1027,9 +1027,8 @@ class HomePage(ctk.CTkFrame):
         self.app.log("=" * 56)
         self.app.log(f"开始处理：{target.name}")
         self.app.log(f"预设：{preset_label}（{'用户预设目录' if presets_dir else 'presets/'}）")
-        self.app.log(f"CLI 预设标识：{preset_name}")
+        self.app.log(f"预设标识：{preset_name}")
         self.app.log(f"输出：{output}")
-        self.app.log(f"CLI 入口：{bridge.describe_entry()}")
 
         def worker() -> None:
             try:

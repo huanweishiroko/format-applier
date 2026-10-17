@@ -47,7 +47,22 @@ _acl-recovery/*.acl.txt
 _acl-recovery/*.log
 _acl-recovery/*.txt
 
+# --- 打包脚本的本地备份 ------------------------------------------------
+desktop/taofu.ico.bak
+
+# --- 只留在本机、不随仓库发布的开发资料 ---------------------------------
+# 这些文件只对本机开发有用（含绝对路径 / 阶段记录），开源发布时不跟踪。
+desktop/NOTES.md
+NOTES.md
+TODO.md
+docs/acl-fix.md
+docs/push-to-github.md
+_acl-recovery/
+tools/session_stats.py
+
 # --- 会话记录 / 编辑器 ----------------------------------------------------
 sessions/
 .vscode/
 .idea/
+
+debug.log

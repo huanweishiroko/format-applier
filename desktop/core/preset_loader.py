@@ -6,7 +6,7 @@
   1. **内置**：首选插件 CLI ``python -m word_format_applier --list-presets-json``
      （带 UTF-8 环境，超时 8s；失败不影响界面），
      回落为直接扫项目里的 ``presets/`` 目录。
-  2. **用户**：``%APPDATA%\\WordFormatAssistant\\presets\\``（见 :mod:`user_presets`），
+  2. **用户**：``%APPDATA%\\Taofu\\presets\\``（见 :mod:`user_presets`），
      经 CLI ``--list-presets-json --presets-dir <该目录>`` 读取；
      这条 CLI 不可用时回落为扫目录。
 
