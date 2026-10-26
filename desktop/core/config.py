@@ -489,7 +489,7 @@ def resolve_presets_dir() -> Path:
 PRESETS_DIR: Path = resolve_presets_dir()
 
 APP_NAME = "桃符"
-APP_VERSION = "2.0.0"
+APP_VERSION = "3.0.0"
 PHASE_LABEL = "正式版"
 
 #: 老版 .env 的三项（兼容保留）：新用户请在设置页填写，不需要碰 .env。
@@ -503,8 +503,9 @@ ENV_FIELDS: Tuple[Tuple[str, str], ...] = (
 #: 视为密钥的字段，展示时脱敏
 SECRET_FIELDS = frozenset({"OPENAI_API_KEY"})
 
-THEME_CHOICES = ("浅色", "深色", "跟随系统")
-_THEME_TO_CTK = {"浅色": "light", "深色": "dark", "跟随系统": "system"}
+#: 单皮肤。旧配置里的多皮肤 key 统一迁移到 cyber_noir。
+SKIN_CHOICES = ("cyber_noir",)
+DEFAULT_SKIN = "cyber_noir"
 
 
 # --------------------------------------------------------------------------- #
@@ -521,7 +522,11 @@ class Settings:
     """
 
     output_dir: str = ""
-    theme: str = "浅色"
+    #: 单皮肤固定深色；保留字段只为兼容旧 config.json。
+    theme: str = "深色"
+    skin: str = DEFAULT_SKIN
+    #: 微动效总开关：卡片 hover / 输入框 focus / 单次 glitch。
+    motion_enabled: bool = True
     window_size: str = "1080x720"
     last_preset: str = ""
     log_expanded: bool = False
@@ -533,12 +538,6 @@ class Settings:
     extra: Dict[str, Any] = field(default_factory=dict)
     #: 运行时标记（不落盘）：本次是首次启动，输出目录还是默认值
     first_run: bool = False
-
-    # -- 主题 -------------------------------------------------------------- #
-    @property
-    def ctk_appearance(self) -> str:
-        """转成 customtkinter 的 appearance mode。"""
-        return _THEME_TO_CTK.get(self.theme, "light")
 
 
 def _documents_dir() -> Path:
@@ -637,8 +636,17 @@ def load_settings(path: Optional[Path] = None) -> Settings:
     settings = Settings(**kwargs)
     settings.extra = extra
     settings.first_run = first_run
-    if settings.theme not in THEME_CHOICES:
-        settings.theme = "浅色"
+    settings.theme = "深色"
+    if settings.skin not in SKIN_CHOICES:
+        settings.skin = DEFAULT_SKIN  # indigo/terminal/cyber/paper 全部迁移到单皮肤
+    if not isinstance(settings.motion_enabled, bool):
+        raw = settings.motion_enabled
+        if isinstance(raw, str):
+            settings.motion_enabled = raw.strip().lower() in ("1", "true", "yes", "on")
+        elif isinstance(raw, (int, float)):
+            settings.motion_enabled = bool(raw)
+        else:
+            settings.motion_enabled = True
     if not isinstance(settings.output_dir, str):
         settings.output_dir = ""
     return settings

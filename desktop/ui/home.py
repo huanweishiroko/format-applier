@@ -14,6 +14,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog
@@ -57,38 +58,42 @@ DROP_TITLE_ACTIVE = "松开即可导入"
 # gap=1 是实线（_render_drop_border 的特殊分支），gap=7/4/8 才是虚线。
 # 四态必须两两可辨：pulse 用 accent 淡底 + 绿描边（"正在接收"），
 # selected 用绿淡底 + 绿实线（"已经选好"）——两者底色不同，不会混。
-_DROP_STATES = {
-    "idle": (th.DROP_BORDER_IDLE, 1, 7, th.DROP_FILL_IDLE,
-             "⬇", DROP_TITLE_IDLE, DROP_HINT_IDLE),
-    "hover": (th.DROP_BORDER_ACTIVE, 3, 4, th.DROP_FILL_ACTIVE,
-              "📥", DROP_TITLE_ACTIVE, DROP_HINT_ACTIVE),
-    "pulse": (th.DROP_BORDER_OK, 2, 8, th.DROP_FILL_ACTIVE,
-              "📥", DROP_TITLE_ACTIVE, DROP_HINT_ACTIVE),
-    "selected": (th.DROP_BORDER_OK, 1.5, 1, th.DROP_FILL_OK,
-                 "✅", DROP_TITLE_IDLE, None),   # None = 运行时拼接「已选择：文件名」
-}
+def _make_drop_states():
+    """按当前（唯一）皮肤生成状态表。
 
-# 接收脉冲（纯绿呼吸）：只切描边粗细 1px ↔ 3px，颜色与底色不切换。
-# 底色沿用 accent 淡底（和 hover 同族），与 selected 的绿淡底区分开。
-_DROP_PULSE_SPECS = {
-    "pulse_off": (th.DROP_BORDER_OK, 3, 8, th.DROP_FILL_ACTIVE,
+    单皮肤后只在模块导入/页面构建时算一次；不再有运行时换肤。
+    """
+    states = {
+        "idle": (th.DROP_BORDER_IDLE, 1, 7, th.DROP_FILL_IDLE,
+                 "⬇", DROP_TITLE_IDLE, DROP_HINT_IDLE),
+        "hover": (th.DROP_BORDER_ACTIVE, 3, 4, th.DROP_FILL_ACTIVE,
                   "📥", DROP_TITLE_ACTIVE, DROP_HINT_ACTIVE),
-    "pulse_on": (th.DROP_BORDER_OK, 1, 8, th.DROP_FILL_ACTIVE,
-                 "📥", DROP_TITLE_ACTIVE, DROP_HINT_ACTIVE),
-}
+        "pulse": (th.DROP_BORDER_OK, 2, 8, th.DROP_FILL_ACTIVE,
+                  "📥", DROP_TITLE_ACTIVE, DROP_HINT_ACTIVE),
+        "selected": (th.DROP_BORDER_OK, 1.5, 1, th.DROP_FILL_OK,
+                     "✅", DROP_TITLE_IDLE, None),
+    }
+    pulses = {
+        "pulse_off": (th.DROP_BORDER_OK, 3, 8, th.DROP_FILL_ACTIVE,
+                      "📥", DROP_TITLE_ACTIVE, DROP_HINT_ACTIVE),
+        "pulse_on": (th.DROP_BORDER_OK, 1, 8, th.DROP_FILL_ACTIVE,
+                     "📥", DROP_TITLE_ACTIVE, DROP_HINT_ACTIVE),
+    }
+    token_colors = tuple(
+        value
+        for value in (th.DROP_BORDER_IDLE, th.DROP_BORDER_ACTIVE,
+                      th.DROP_FILL_IDLE, th.DROP_FILL_ACTIVE,
+                      th.DROP_FILL_OK, th.DROP_BORDER_OK)
+        if isinstance(value, str)
+    )
+    return states, pulses, token_colors
+
+
+_DROP_STATES, _DROP_PULSE_SPECS, _DROP_TOKEN_COLORS = _make_drop_states()
 
 # 120ms 状态过渡：4 步 × 30ms（只用 after()，不引新依赖）
 _DROP_TWEEN_MS = 30
 _DROP_TWEEN_STEPS = 4
-
-# 六个 token 色对里出现过的单色（供 _paint_frame 的兜底解析用；只读，不新增色值）
-_DROP_TOKEN_COLORS = tuple(
-    value
-    for value in (th.DROP_BORDER_IDLE, th.DROP_BORDER_ACTIVE,
-                  th.DROP_FILL_IDLE, th.DROP_FILL_ACTIVE,
-                  th.DROP_FILL_OK, th.DROP_BORDER_OK)
-    if isinstance(value, str)
-)
 
 
 def _hex_to_rgb(value: str) -> Optional[tuple]:
@@ -216,9 +221,17 @@ class HomePage(ctk.CTkFrame):
         head.grid_columnconfigure(0, weight=1)   # 标题列：吸收余宽
         head.grid_columnconfigure(1, weight=0)   # 轨道列：宽度由内容决定，贴右
 
-        ctk.CTkLabel(head, text="格式处理", font=th.font(26, "bold"), anchor="w").grid(
-            row=0, column=0, sticky="w"
-        )
+        title_row = ctk.CTkFrame(head, fg_color="transparent")
+        title_row.grid(row=0, column=0, sticky="w")
+        title_font = th.font(28, "bold", role="display")
+        ctk.CTkLabel(
+            title_row, text=">", font=title_font,
+            text_color=th.ACCENT, anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            title_row, text="格式处理", font=title_font,
+            text_color=th.TEXT, anchor="w",
+        ).grid(row=0, column=1, sticky="w", padx=(th.SP.XS, 0))
         th.hint(
             head,
             "把 .docx 拖进来，选一个格式要求预设，剩下的交给桃符的格式处理引擎。",
@@ -233,9 +246,8 @@ class HomePage(ctk.CTkFrame):
     def _build_steps(self, master) -> None:
         """标题右侧的三节点轨道。只在这里画一次，之后一律由 :meth:`_refresh_steps` 改外观。
 
-        颜色全部传 ``th`` 的 token 色对（不调 ``th.C()``）：PALETTE 每条都是 (浅, 深)，
-        CTk 自己在切主题时重解析；而 ``app.py`` 的 ``apply_theme`` 不重建页面，
-        用 ``th.C()`` 取的单色会在切换主题后停在旧色。
+        颜色全部传 ``th`` 的 token 色对（不调 ``th.C()``）：PALETTE 每条都是 (深, 深)，
+        CTk 自己解析；单皮肤固定深色，不存在运行时明暗切换。
         """
         steps = ctk.CTkFrame(master, fg_color="transparent")
         steps.grid(row=0, column=1, sticky="e", padx=(th.PAD, 0))
@@ -396,10 +408,16 @@ class HomePage(ctk.CTkFrame):
 
         inner = ctk.CTkFrame(self.drop_frame, fg_color="transparent")
         inner.place(relx=0.5, rely=0.5, anchor="center")
+        self.drop_inner = inner
 
-        self.drop_icon = ctk.CTkLabel(inner, text="⬇", font=th.font(24, "bold"))
+        self.drop_icon = ctk.CTkLabel(
+            inner, text="⬇", font=th.font(24, "bold"), text_color=th.ACCENT
+        )
         self.drop_icon.grid(row=0, column=0, pady=(0, 2))
-        self.drop_title = ctk.CTkLabel(inner, text=DROP_TITLE_IDLE, font=th.font(14, "bold"))
+        self.drop_title = ctk.CTkLabel(
+            inner, text=DROP_TITLE_IDLE, font=th.font(14, "bold"),
+            text_color=th.TEXT,
+        )
         self.drop_title.grid(row=1, column=0)
         self.drop_hint = th.hint(inner, DROP_HINT_IDLE, anchor="center")
         self.drop_hint.grid(row=2, column=0, pady=(2, th.PAD_S))
@@ -421,6 +439,14 @@ class HomePage(ctk.CTkFrame):
             if not self.dnd_ok:
                 self.drop_hint.configure(text="拖放组件不可用，请点下面的按钮选择文件")
         self.drop_frame.bind("<Button-1>", lambda _e: self.choose_file())
+
+    def attach_motion(self, motion) -> None:
+        """页面建好后由 app 注入轻量动效控制器，挂载拖拽区代码雨。"""
+        self.rain = motion.attach_rain(
+            self.drop_frame, self.drop_inner,
+            on_click=self.choose_file, on_drop=self._on_drop,
+        )
+        self.rain.set_drop_idle(getattr(self, "_drop_state", "idle") == "idle")
 
     def _on_drag_hover(self, hovering: bool) -> None:
         """来自 dnd 的悬停通知：开始/结束一次"鼠标按住并停在窗口上"的过程。
@@ -522,6 +548,9 @@ class HomePage(ctk.CTkFrame):
                 self._sync_drop_text()   # 文件没变，但换文件时文件名要跟上
             return
         self._drop_state = state
+        rain = getattr(self, "rain", None)
+        if rain is not None:
+            rain.set_drop_idle(state == "idle")
         target = self._current_spec()
         self._start_drop_anim(target)
 
@@ -717,13 +746,11 @@ class HomePage(ctk.CTkFrame):
             row=1, column=0, sticky="w", padx=th.PAD, pady=(th.PAD_S, 2)
         )
         self.preset_var = tk.StringVar(value="")
-        self.preset_menu = ctk.CTkComboBox(
+        self.preset_menu = th.combo(
             card, values=["（加载中…）"], variable=self.preset_var,
-            font=th.font(13), dropdown_font=th.font(13), height=34,
-            corner_radius=th.RADIUS, state="readonly",
+            command=self._on_preset_change, height=34,
         )
         self.preset_menu.grid(row=2, column=0, sticky="ew", padx=th.PAD)
-        self.preset_menu.configure(command=self._on_preset_change)
 
         th.ghost_button(card, "上传格式要求…", self.upload_format, height=30).grid(
             row=3, column=0, sticky="ew", padx=th.PAD, pady=(th.PAD_S, th.PAD_S)
@@ -760,10 +787,36 @@ class HomePage(ctk.CTkFrame):
             right, "预览效果", self.preview, width=th.BTN_W_XL, height=38
         )
         self.preview_button.grid(row=0, column=0, padx=(0, th.PAD_S))
-        self.process_button = th.primary_button(
-            right, "开始处理", self.start_process, width=140
+        process_wrap = ctk.CTkFrame(right, fg_color="transparent")
+        process_wrap.grid(row=0, column=1)
+        process_wrap.grid_columnconfigure(1, weight=1)
+        edge = ctk.CTkFrame(
+            process_wrap, width=2, height=th.CTRL_H_L,
+            fg_color=th.ACCENT, corner_radius=0,
         )
-        self.process_button.grid(row=0, column=1)
+        edge.grid(row=0, column=0, sticky="ns")
+        self.process_button = th.primary_button(
+            process_wrap, "< START_PROCESS >", self.start_process,
+            width=170, font=th.mono_font(11, "bold"),
+        )
+        self.process_button.grid(row=0, column=1, padx=(2, 0))
+        self._process_hovered = False
+
+        def hover_in(_event=None) -> None:
+            self._process_hovered = True
+            if not getattr(self, "_busy", False):
+                self.process_button.configure(text="< //START_PROCESS// >")
+
+        def hover_out(_event=None) -> None:
+            self._process_hovered = False
+            if not getattr(self, "_busy", False):
+                self.process_button.configure(text="< START_PROCESS >")
+
+        for target in (self.process_button,
+                       getattr(self.process_button, "_canvas", None)):
+            if target is not None:
+                target.bind("<Enter>", hover_in, add="+")
+                target.bind("<Leave>", hover_out, add="+")
 
     # ------------------------------------------------------------------ #
     # 5. 日志区
@@ -780,7 +833,7 @@ class HomePage(ctk.CTkFrame):
         head.grid_columnconfigure(0, weight=1)
 
         self.log_toggle = ctk.CTkButton(
-            head, text=self._log_title(), font=th.font(13, "bold"), anchor="w",
+            head, text=self._log_title(), font=th.mono_font(12, "bold"), anchor="w",
             fg_color="transparent", hover=False, text_color=th.TEXT,
             command=self.toggle_log,
         )
@@ -794,17 +847,33 @@ class HomePage(ctk.CTkFrame):
         self.log_box = th.textbox(wrap, mono=True, height=150)
         self.log_box.grid(row=1, column=0, sticky="nsew", pady=(th.PAD_S, 0))
         self.log_box.configure(state="disabled")
+        text = self.log_box._textbox
+        text.tag_configure("stamp", foreground=th.C(th.TEXT_MUTED))
+        text.tag_configure("INFO", foreground=th.LOG_INFO)
+        text.tag_configure("SYS", foreground=th.C(th.ACCENT))
+        text.tag_configure("WARN", foreground=th.LOG_WARN)
+        text.tag_configure("ERR", foreground=th.C(th.SECONDARY))
+        self.log_prompt = ctk.CTkLabel(
+            wrap, text="root@taofu:~# █", font=th.mono_font(10),
+            text_color=th.ACCENT_TEXT, anchor="w",
+        )
+        self.log_prompt.grid(row=2, column=0, sticky="w", pady=(4, 0))
         self._log_visible = bool(self.app.settings.log_expanded)
         self._apply_log_visibility()
 
     def _log_title(self) -> str:
-        return ("▾ " if getattr(self, "_log_visible", True) else "▸ ") + "运行日志"
+        mark = "▾ " if getattr(self, "_log_visible", True) else "▸ "
+        return mark + "[ SYSTEM_LOG ]"
 
     def _apply_log_visibility(self) -> None:
         if self._log_visible:
             self.log_box.grid()
+            if hasattr(self, "log_prompt"):
+                self.log_prompt.grid()
         else:
             self.log_box.grid_remove()
+            if hasattr(self, "log_prompt"):
+                self.log_prompt.grid_remove()
         self.log_toggle.configure(text=self._log_title())
 
     def toggle_log(self) -> None:
@@ -812,9 +881,30 @@ class HomePage(ctk.CTkFrame):
         self._apply_log_visibility()
         self.app.settings.log_expanded = self._log_visible
 
+    @staticmethod
+    def _log_level(line: str) -> str:
+        raw = line.strip()
+        upper = raw.upper()
+        if ("✕" in raw or "[ERR]" in upper or "失败" in raw
+                or "错误" in raw or "ERROR" in upper or "TRACEBACK" in upper):
+            return "ERR"
+        if "⚠" in raw or "[WARN]" in upper or "警告" in raw:
+            return "WARN"
+        if (raw.startswith("=") or raw.startswith("桃符 v")
+                or "开始处理" in raw or raw.startswith("预设：")
+                or raw.startswith("预设标识：") or raw.startswith("输出：")):
+            return "SYS"
+        return "INFO"
+
     def append_log(self, text: str) -> None:
+        lines = text.splitlines() or [""]
         self.log_box.configure(state="normal")
-        self.log_box.insert("end", text + "\n")
+        for line in lines:
+            stamp = time.strftime("%H:%M:%S")
+            level = self._log_level(line)
+            self.log_box.insert("end", f"[{stamp}] ", "stamp")
+            self.log_box.insert("end", f"[{level}] ", level)
+            self.log_box.insert("end", line + "\n")
         self.log_box.see("end")
         self.log_box.configure(state="disabled")
 
@@ -1006,6 +1096,8 @@ class HomePage(ctk.CTkFrame):
         if self._busy:
             self.app.status("正在处理中，请稍候…")
             return
+        # 点击主按钮：一次 100ms 的颜色 glitch，不阻塞后续校验/处理。
+        self.app.motion.flash(self.process_button, "border_color")
         if not self._require_ready():
             return
 
@@ -1131,6 +1223,7 @@ class HomePage(ctk.CTkFrame):
                 if line.strip():
                     self.app.log(f"  {line.rstrip()}")
             self.app.status("处理失败")
+            self.app.motion.flash(self.app.status_label, "text_color")
             dlg.error(self.app, headline, title="处理失败", detail=err)
 
     def _on_process_failed(self, message: str, detail: str) -> None:
@@ -1140,6 +1233,7 @@ class HomePage(ctk.CTkFrame):
         self._refresh_steps()
         self.app.log(f"✕ {message}")
         self.app.status("处理失败")
+        self.app.motion.flash(self.app.status_label, "text_color")
         dlg.error(self.app, message, title="处理失败", detail=detail)
 
     # -- 小工具 ---------------------------------------------------------- #
@@ -1147,9 +1241,15 @@ class HomePage(ctk.CTkFrame):
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
         try:
+            if busy:
+                text = "< PROCESSING >"
+            elif getattr(self, "_process_hovered", False):
+                text = "< //START_PROCESS// >"
+            else:
+                text = "< START_PROCESS >"
             self.process_button.configure(
                 state="disabled" if busy else "normal",
-                text="处理中…" if busy else "开始处理",
+                text=text,
             )
             self.preview_button.configure(state="disabled" if busy else "normal")
         except Exception:  # noqa: BLE001 - 控件已销毁时忽略

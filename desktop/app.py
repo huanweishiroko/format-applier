@@ -120,6 +120,7 @@ from core import bridge as br  # noqa: E402
 from core import config as cfg  # noqa: E402
 from core import preset_loader as pl  # noqa: E402
 from ui import dialogs as dlg  # noqa: E402
+from ui import effects as fx  # noqa: E402
 from ui import theme as th  # noqa: E402
 
 import customtkinter as ctk  # noqa: E402 - 必须在 DnD 注入前先导入
@@ -249,13 +250,14 @@ class FormatApp(ctk.CTk):
             self.save_settings()
         self.cli_entry = wfa_cli_detect()
 
-        self.title(f"{cfg.APP_NAME} · v{cfg.APP_VERSION}")
+        self.title(f"> {cfg.APP_NAME} · v{cfg.APP_VERSION}")
         self.geometry(self.settings.window_size)
         self.minsize(860, 600)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        ctk.set_appearance_mode(self.settings.ctk_appearance)
+        th.set_skin(self.settings.skin)
+        ctk.set_appearance_mode("dark")  # 赛博黑 dark-only，设置里不再提供明暗切换
         ctk.set_default_color_theme("blue")
         th.apply_root_theme(self)
         self.dnd_available = enable_dnd(self)
@@ -264,6 +266,9 @@ class FormatApp(ctk.CTk):
         self._build_content()
         self._build_statusbar()
         self._build_pages()
+        for page in self.pages.values():
+            th.install_grid(page)
+        th.normalize_default_text(self)
 
         # 切页过渡遮罩（NOTES「十」）：必须建在 4 页**之后** —— 兄弟控件的层级按创建顺序，
         # 建在前面会被页面盖住。同一格常驻 + tkraise 已经消掉了 190ms 的 unmap/map，
@@ -273,7 +278,15 @@ class FormatApp(ctk.CTk):
         self.mask_ms: List[float] = []          # 每次切页的遮罩停留耗时（自检脚本读）
         self.mask_hold_ms: List[float] = []     # 遮罩真正在屏的时长（place → place_forget）
 
+        # 轻量微动效：绑定卡片 hover / 输入框 focus，并持有单次 glitch。
+        self.motion = fx.MotionBinder(self)
+        self.motion.bind_tree(self)
+        home = self.pages.get("home")
+        if home is not None and hasattr(home, "attach_motion"):
+            home.attach_motion(self.motion)
+
         self.show_page("home")
+        self._start_blink()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.bind("<Control-q>", lambda _e: self.on_close())
 
@@ -310,7 +323,9 @@ class FormatApp(ctk.CTk):
 
         self._nav_font = th.font(th.FS.LEAD)
         self._nav_font_active = th.font(th.FS.LEAD, "bold")
-        for i, (key, label, icon) in enumerate(th.NAV_ITEMS, start=2):
+        self.nav_dots = {}
+        self.nav_labels = {}
+        for i, (key, label, _icon) in enumerate(th.NAV_ITEMS, start=2):
             row = th.plain(bar)
             row.grid(row=i, column=0, sticky="ew")
             row.grid_columnconfigure(0, weight=1)
@@ -324,21 +339,29 @@ class FormatApp(ctk.CTk):
                 fg_color=th.ACCENT,
             )
 
+            self.nav_labels[key] = f">_ {label}"
             button = ctk.CTkButton(
                 row,
-                text=f"  {icon}  {label}",
+                text=self.nav_labels[key],
                 font=self._nav_font,
                 anchor="w",
                 height=th.SIDEBAR_ITEM_H,
                 corner_radius=th.RADIUS,
                 fg_color=th.TRANSPARENT,
                 hover_color=th.HOVER_FILL,
-                text_color=th.TEXT_SECOND,
+                text_color=th.TEXT_MUTED,
                 command=lambda k=key: self.show_page(k),
             )
             button.grid(row=0, column=0, sticky="ew", padx=th.PAD_S, pady=th.SP.XXS)
+            dot = ctk.CTkLabel(
+                row, text="●", width=10, font=th.mono_font(9),
+                text_color=th.ACCENT, fg_color=th.TRANSPARENT,
+            )
+            dot.grid(row=0, column=1, sticky="e", padx=(0, 6))
+            dot.grid_remove()
             self.nav_buttons[key] = button
             self.nav_accents[key] = accent
+            self.nav_dots[key] = dot
 
         footer = ctk.CTkFrame(bar, fg_color=th.BG_SURFACE_ALT, corner_radius=th.RADIUS_S)
         footer.grid(row=len(th.NAV_ITEMS) + 3, column=0, sticky="ew", padx=th.PAD, pady=th.PAD)
@@ -353,7 +376,24 @@ class FormatApp(ctk.CTk):
         self.content = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
         self.content.grid(row=0, column=1, sticky="nsew")
         self.content.grid_columnconfigure(0, weight=1)
-        self.content.grid_rowconfigure(0, weight=1)
+        self.content.grid_rowconfigure(1, weight=1)
+
+        # 全局 HUD：一条固定状态带 + 左右两条静态扫描刻度。
+        self.hud_band, self.hud_cursor, self.hud_stream = th.hud_band(
+            self.content, cfg.APP_VERSION)
+        self.hud_band.grid(row=0, column=0, sticky="ew")
+
+        self.page_host = ctk.CTkFrame(
+            self.content, corner_radius=0, fg_color=th.BG_PAGE)
+        self.page_host.grid(row=1, column=0, sticky="nsew")
+        self.page_host.grid_rowconfigure(0, weight=1)
+        self.page_host.grid_columnconfigure(0, minsize=8)
+        self.page_host.grid_columnconfigure(1, weight=1)
+        self.page_host.grid_columnconfigure(2, minsize=8)
+        self.left_rail = th.hud_rail(self.page_host)
+        self.left_rail.grid(row=0, column=0, sticky="ns")
+        self.right_rail = th.hud_rail(self.page_host)
+        self.right_rail.grid(row=0, column=2, sticky="ns")
 
     def _build_statusbar(self) -> None:
         bar = ctk.CTkFrame(
@@ -410,7 +450,7 @@ class FormatApp(ctk.CTk):
         def page(module: str, attr: str):
             """返回一个"构造页面实例"的无参函数（先解析类，再实例化）。"""
             cls = load(module, attr)
-            return lambda: cls(self.content, self)
+            return lambda: cls(self.page_host, self)
 
         factories = (
             ("home", page("home", "HomePage")),
@@ -430,7 +470,7 @@ class FormatApp(ctk.CTk):
             # 默认值配置 + CTk canvas 全量重绘。实测同样 176 个控件的页面，重新映射一次
             # ≈190ms（其中几何传播 ~137ms + 画像素 ~150ms），而同样 4 页常驻、只 tkraise
             # 只要 ~22ms。这是「切页时控件一块一块冒出来」的根因（2026-10-08 实测）。
-            page.grid(row=0, column=0, sticky="nsew")
+            page.grid(row=0, column=1, sticky="nsew")
             self.pages[key] = page
             self._collect_focus_targets(key, page)
 
@@ -521,11 +561,21 @@ class FormatApp(ctk.CTk):
                     accent.place_forget()
             button.configure(
                 fg_color=th.ACCENT_SOFT if active else th.TRANSPARENT,
-                text_color=th.ACCENT_TEXT if active else th.TEXT_SECOND,
+                text_color=th.ACCENT if active else th.TEXT_MUTED,
                 hover_color=th.HOVER_FILL_SUB if active else th.HOVER_FILL,
                 font=self._nav_font_active if active else self._nav_font,
             )
+            dot = self.nav_dots.get(other)
+            if dot is not None:
+                if active:
+                    dot.grid()
+                else:
+                    dot.grid_remove()
         self.current_key = key
+        self._refresh_nav_text()
+        motion = getattr(self, "motion", None)
+        if motion is not None:
+            motion.on_page_changed(key)
         # 页面常驻映射后，<Configure> 不再随切页发生 → 需要显式通知目标页"你现在露脸了"
         # （home 的滚动视口拉伸靠这个补算）。本方法属可选钩子，页面没实现就跳过。
         on_shown = getattr(self.pages[key], "on_shown", None)
@@ -706,15 +756,54 @@ class FormatApp(ctk.CTk):
         self.settings.api_key = (api_key or "").strip()
         self.settings.api_model = (model or "").strip()
 
-    def apply_theme(self, theme: str) -> None:
-        if theme not in cfg.THEME_CHOICES:
-            return
-        self.settings.theme = theme
-        ctk.set_appearance_mode(self.settings.ctk_appearance)
-        th.apply_root_theme(self)
+    def set_motion_enabled(self, enabled: bool) -> None:
+        """设置页“界面动效”开关：关闭后 hover/focus/glitch 立即失效。"""
+        enabled = bool(enabled)
+        self.settings.motion_enabled = enabled
+        motion = getattr(self, "motion", None)
+        if motion is not None:
+            motion.set_enabled(enabled)
         self.save_settings()
-        self.log(f"主题切换 → {theme}")
-        self.status(f"主题已切换为「{theme}」")
+        self.log(f"界面动效 → {'开启' if enabled else '关闭'}")
+        self.status(f"界面动效已{'开启' if enabled else '关闭'}")
+
+    # ------------------------------------------------------------------ #
+    # 全局 1s blink：HUD 光标 / 导航前缀 / 输入框焦点光标共用
+    # ------------------------------------------------------------------ #
+
+    def _start_blink(self) -> None:
+        self._blink_phase = True
+        self._blink_job = None
+        th.register_blink(self._blink_hud)
+        th.register_blink(self._blink_nav)
+        self._blink_job = self.after(1000, self._blink_tick)
+
+    def _blink_tick(self) -> None:
+        if getattr(self, "_closing", False):
+            return
+        self._blink_phase = not bool(getattr(self, "_blink_phase", True))
+        th.tick_blink(self._blink_phase)
+        self._blink_job = self.after(1000, self._blink_tick)
+
+    def _blink_hud(self, phase: bool) -> None:
+        try:
+            self.hud_cursor.configure(text="_" if phase else " ")
+        except Exception:  # noqa: BLE001 - 窗口销毁中
+            pass
+
+    def _blink_nav(self, _phase: bool) -> None:
+        self._refresh_nav_text()
+
+    def _refresh_nav_text(self) -> None:
+        phase = bool(getattr(self, "_blink_phase", True))
+        current = getattr(self, "current_key", "")
+        for key, button in self.nav_buttons.items():
+            base = self.nav_labels.get(key, "")
+            prefix = ("> " if phase else "  ") if key == current else ""
+            try:
+                button.configure(text=prefix + base)
+            except Exception:  # noqa: BLE001 - 窗口销毁中
+                pass
 
     def save_settings(self, notify: bool = True) -> bool:
         """写 config.json；失败时记录真实原因，必要时弹一次提示。
@@ -825,6 +914,19 @@ class FormatApp(ctk.CTk):
 
     def on_close(self) -> None:
         try:
+            self._closing = True
+            job = getattr(self, "_blink_job", None)
+            if job is not None:
+                try:
+                    self.after_cancel(job)
+                except (tk.TclError, ValueError):
+                    pass
+                self._blink_job = None
+            th.unregister_blink(self._blink_hud)
+            th.unregister_blink(self._blink_nav)
+            motion = getattr(self, "motion", None)
+            if motion is not None:
+                motion.stop_all()
             self.settings.window_size = f"{self.winfo_width()}x{self.winfo_height()}"
             self.save_settings()
         finally:
@@ -962,11 +1064,8 @@ def run_selftest() -> int:
         home.toggle_log()
         app.update()
         home.toggle_log()
-        app.apply_theme("深色" if app.settings.theme == "浅色" else "浅色")
         app.update()
-        app.apply_theme("浅色")
-        app.update()
-        results.append("theme toggle: OK")
+        results.append(f"mode: {ctk.get_appearance_mode()}（固定深色）")
         results.append(f"preset page rows: {len(app.pages['presets'].presets)}")
         results.append(f"window: {app.title()} {app.winfo_width()}x{app.winfo_height()} "
                        f"(minsize 860x600)")

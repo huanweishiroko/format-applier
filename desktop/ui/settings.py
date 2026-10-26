@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""设置页：默认输出目录 / 主题 / API 配置 / 用户预设目录 / token 统计。
+"""设置页：默认输出目录 / 外观与动效 / API 配置 / 用户预设目录 / token 统计。
 
 Phase 3 边界：
   * 用户预设目录：显示真实路径 + 「打开目录」；
@@ -81,9 +81,11 @@ class SettingsPage(ctk.CTkFrame):
         head = ctk.CTkFrame(scroll, fg_color="transparent")
         head.grid(row=0, column=0, sticky="ew", padx=th.PAD_L, pady=(th.PAD_L, th.PAD_S))
         head.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(head, text="设置", font=th.font(22, "bold"), anchor="w").grid(
-            row=0, column=0, sticky="w"
-        )
+        ctk.CTkLabel(
+            head, text="设置",
+            font=th.font(22, "bold", role="display"),
+            text_color=th.TEXT, anchor="w",
+        ).grid(row=0, column=0, sticky="w")
         active_cfg = cfg.active_config_path()
         cfg_label = cfg.config_location_label(active_cfg)
         cfg_note = f"改动即时生效，并写入{cfg_label}"
@@ -139,23 +141,59 @@ class SettingsPage(ctk.CTkFrame):
     # ------------------------------------------------------------------ #
 
     def _build_theme_card(self, master, col: int = 0) -> None:
-        card = self._card(master, 0, "外观主题", col=col)
-        card.grid_columnconfigure(0, weight=1)
+        card = self._card(master, 0, "外观与动效", col=col)
+        card.grid_columnconfigure(1, weight=1)
 
         row = ctk.CTkFrame(card, fg_color="transparent")
-        row.grid(row=1, column=0, sticky="ew", padx=th.PAD, pady=(0, th.PAD))
+        row.grid(row=1, column=0, columnspan=2, sticky="ew",
+                 padx=th.PAD, pady=(0, th.PAD_S))
         row.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(row, text="主题", font=th.font(13), anchor="w").grid(
+        ctk.CTkLabel(row, text="皮肤", font=th.font(13), anchor="w").grid(
             row=0, column=0, sticky="w"
         )
-        self.theme_var = tk.StringVar(value=self.app.settings.theme)
-        th.segmented(
-            row,
-            values=list(cfg.THEME_CHOICES),
-            variable=self.theme_var,
-            command=self._on_theme,
+        ctk.CTkLabel(
+            row, text="赛博黑 · 固定深色", font=th.font(13, "bold"),
+            text_color=th.ACCENT_TEXT, anchor="w",
         ).grid(row=0, column=1, sticky="w", padx=(th.PAD, 0))
+
+        swatches = ctk.CTkFrame(card, fg_color="transparent")
+        swatches.grid(row=2, column=0, columnspan=2, sticky="w",
+                      padx=th.PAD, pady=(0, 2))
+        for index, color in enumerate(
+                (th.BG_PAGE, th.ACCENT, th.SECONDARY)):
+            chip = ctk.CTkFrame(
+                swatches, width=14, height=14, corner_radius=2,
+                border_width=1, border_color=th.BORDER, fg_color=color,
+            )
+            chip.grid(row=0, column=index, padx=(0, 4))
+            chip.grid_propagate(False)
+        th.hint(swatches, "极暗冷灰蓝 + 青色光刃 + 洋红故障色").grid(
+            row=0, column=3, sticky="w", padx=(th.PAD_S, 0)
+        )
+
+        motion_row = ctk.CTkFrame(card, fg_color="transparent")
+        motion_row.grid(row=3, column=0, columnspan=2, sticky="ew",
+                        padx=th.PAD, pady=(th.PAD_S, 2))
+        self.motion_var = tk.BooleanVar(
+            value=bool(getattr(self.app.settings, "motion_enabled", True)))
+        ctk.CTkSwitch(
+            motion_row,
+            text="界面动效",
+            variable=self.motion_var,
+            command=self._on_motion_toggle,
+            font=th.font(13),
+            text_color=th.TEXT,
+            progress_color=th.ACCENT,
+            fg_color=th.BG_SURFACE_ALT,
+            button_color=th.TEXT,
+            button_hover_color=th.ACCENT_HOVER,
+            corner_radius=4,
+        ).grid(row=0, column=0, sticky="w")
+
+        self.motion_hint = th.hint(card, "", wraplength=440, justify="left")
+        self.motion_hint.grid(row=4, column=0, columnspan=2, sticky="w",
+                              padx=th.PAD, pady=(0, th.PAD))
+        self._refresh_motion_hint()
 
     # ------------------------------------------------------------------ #
     # 用户预设目录
@@ -289,6 +327,8 @@ class SettingsPage(ctk.CTkFrame):
         self.token_detail = ctk.CTkTextbox(
             card, font=ctk.CTkFont(family="Consolas", size=12), height=110,
             corner_radius=th.RADIUS, wrap="word",
+            fg_color=th.BG_SURFACE_ALT, text_color=th.LOG_TEXT,
+            border_width=1, border_color=th.BORDER,
         )
         self.token_detail.grid(row=3, column=0, columnspan=4, sticky="ew",
                                padx=th.PAD, pady=(th.PAD_S, 0))
@@ -395,7 +435,7 @@ class SettingsPage(ctk.CTkFrame):
             padx=th.PAD, pady=(th.PAD, th.PAD_S),
         )
         th.badge(card, text, tone=tone).grid(
-            row=0, column=span, sticky="e", padx=(th.PAD_S, th.PAD),
+            row=0, column=span, sticky="e", padx=(th.PAD_S, th.PAD + 42),
             pady=(th.PAD, th.PAD_S),
         )
         return card
@@ -516,8 +556,20 @@ class SettingsPage(ctk.CTkFrame):
         except Exception as exc:  # noqa: BLE001
             self.out_state.configure(text=f"打开失败：{exc}")
 
-    def _on_theme(self, choice: str) -> None:
-        self.app.apply_theme(choice)
+    def _on_motion_toggle(self) -> None:
+        self.app.set_motion_enabled(bool(self.motion_var.get()))
+        self._refresh_motion_hint()
+
+    def _refresh_motion_hint(self) -> None:
+        try:
+            enabled = bool(getattr(self.app.settings, "motion_enabled", True))
+            if enabled:
+                text = "开启：卡片 hover、输入框焦点、主按钮单次 glitch，均 ≤160ms。"
+            else:
+                text = "关闭：所有微动效立即取消，界面保持静态。"
+            self.motion_hint.configure(text=text)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _open_url(self, url: str) -> None:
         """用系统默认浏览器打开注册页。"""

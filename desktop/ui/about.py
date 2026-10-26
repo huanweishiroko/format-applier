@@ -15,6 +15,9 @@ except ImportError:  # pragma: no cover - 包内运行时
     from . import theme as th  # type: ignore
     from ..core import config as cfg  # type: ignore
 
+# 档案文字专用暗青：比 HUD_DIM 亮一点，保证在卡片底色上可读。
+ARCHIVE_DIM = "#3E7C86"
+
 INTRO = (
     "桃符：把「格式要求」（自然语言要求或样式模板）落到一份 .docx 上，"
     "正文内容不动，只调整字体、字号、标题层级、列表、表格、对齐、缩进、行距与页面设置。\n\n"
@@ -23,7 +26,7 @@ INTRO = (
 )
 
 STACK = (
-    ("界面", "customtkinter（浅色 / 深色可切换）"),
+    ("界面", "customtkinter（单皮肤 · 固定深色）"),
     ("拖放", "tkinterdnd2（把文件直接拖进窗口）"),
     ("文档", "python-docx（读写 .docx，不改原文件）"),
     ("解析", "本地规则解析 + 可选 AI 语义解析"),
@@ -50,17 +53,50 @@ class AboutPage(ctk.CTkFrame):
         hero.grid(row=0, column=0, sticky="ew", padx=th.PAD_L, pady=(th.PAD_L, th.PAD))
         hero.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(hero, text="桃符", font=th.font(24, "bold"), anchor="w").grid(
-            row=0, column=0, sticky="w", padx=th.PAD_L, pady=(th.PAD_L, 2)
-        )
+        # 纯文本档案：紧凑三行控制台输出，不再加载任何插画。
+        archive = ctk.CTkFrame(hero, fg_color=th.TRANSPARENT)
+        archive.grid(row=0, column=0, sticky="w", padx=th.PAD_L,
+                     pady=(th.PAD_L, th.PAD_S))
+
+        def console_line(parts) -> None:
+            line = ctk.CTkFrame(archive, fg_color=th.TRANSPARENT)
+            line.pack(anchor="w", pady=0)
+            for text, color in parts:
+                ctk.CTkLabel(
+                    line, text=text, font=th.mono_font(9),
+                    text_color=color, fg_color=th.TRANSPARENT,
+                ).pack(side="left")
+
+        console_line((
+            ("> ", th.ACCENT), ("DECRYPTING ASSET... ", ARCHIVE_DIM),
+            ("[OK]", th.ACCENT),
+        ))
+        console_line((
+            ("SUBJECT: ", ARCHIVE_DIM), ("TAI FU", th.ACCENT),
+            (" / STATUS: ", ARCHIVE_DIM), ("ONLINE", th.ACCENT),
+        ))
+        console_line((
+            ("SHA256: ", ARCHIVE_DIM), ("4f9a...3b2c", th.ACCENT_TEXT),
+        ))
+
+        ctk.CTkLabel(
+            hero, text="桃符",
+            font=th.font(26, "bold", role="display"),
+            text_color=th.TEXT, anchor="center", justify="center",
+        ).grid(row=1, column=0, sticky="ew", padx=th.PAD_L, pady=(2, 2))
         ctk.CTkLabel(
             hero, text=f"版本 v{cfg.APP_VERSION} · {cfg.PHASE_LABEL}",
-            font=th.font(13), anchor="w", text_color=th.TEXT_SECOND,
-        ).grid(row=1, column=0, sticky="w", padx=th.PAD_L)
+            font=th.font(13), anchor="center", justify="center",
+            text_color=th.TEXT_SECOND,
+        ).grid(row=2, column=0, sticky="ew", padx=th.PAD_L)
+        ctk.CTkLabel(
+            hero, text="MIT License · 开源", font=th.font(12),
+            anchor="center", justify="center", text_color=th.TEXT_MUTED,
+        ).grid(row=3, column=0, sticky="ew", padx=th.PAD_L, pady=(2, 0))
         ctk.CTkLabel(
             hero, text=INTRO, font=th.font(13), anchor="w", justify="left",
             wraplength=620,
-        ).grid(row=2, column=0, sticky="w", padx=th.PAD_L, pady=(th.PAD, th.PAD_L))
+        ).grid(row=4, column=0, sticky="w", padx=th.PAD_L, pady=(th.PAD, th.PAD_L))
 
         # 技术栈
         stack = th.card(scroll)

@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller 打包配方 · 桃符（v2.0.0）。
+"""PyInstaller 打包配方 · 桃符（v3.0.0）。
 
 用法（开发者在本机终端手动执行）::
 
