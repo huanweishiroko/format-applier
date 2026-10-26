@@ -234,6 +234,10 @@ _CLEANUP_TOKEN_MAP = {
     "装饰": "decorations", "装饰符号": "decorations", "符号": "decorations",
     "占位": "decorations", "占位符号": "decorations", "无意义符号": "decorations",
     "decorations": "decorations", "symbols": "decorations",
+    # split-line fragments / inline formulas (merge before formatting)
+    "碎片": "fragments", "碎片合并": "fragments", "行内碎片": "fragments",
+    "段落碎片": "fragments", "合并碎片": "fragments", "短行合并": "fragments",
+    "fragments": "fragments", "fragment": "fragments",
     # blank paragraphs
     "空段落": "blank_lines", "空行": "blank_lines", "合并空段落": "blank_lines",
     "多余空段落": "blank_lines", "blank": "blank_lines", "blank_lines": "blank_lines",

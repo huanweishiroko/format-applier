@@ -10,7 +10,9 @@ Phase 3 已接通真实处理流程：
 
 from __future__ import annotations
 
+import shutil
 import sys
+import tempfile
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -1059,6 +1061,29 @@ class HomePage(ctk.CTkFrame):
 
     # -- 处理结果回调（都在主线程） ------------------------------------- #
 
+    def _relocate_report(self, report: str, out_docx: str) -> str:
+        """把临时目录里的报告移到输出文件旁边；移不动就保留临时路径。"""
+        if not report or not out_docx:
+            return report
+        source = Path(report)
+        if not source.is_file():
+            return report          # 报告本来就没写出来，别再报一次移动失败
+        try:
+            source.resolve().relative_to(Path(tempfile.gettempdir()).resolve())
+        except (OSError, ValueError):
+            return report          # 不是临时目录里的（老版本/自定义路径），保持原样
+        destination = Path(out_docx + ".report.json")
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if destination.exists():
+                destination.unlink()
+            shutil.move(str(source), str(destination))
+            self.app.log(f"报告已移到输出目录：{destination}")
+            return str(destination)
+        except OSError as exc:
+            self.app.log(f"[WARN] 报告文件移动失败，已跳过：{type(exc).__name__}: {exc}")
+            return report
+
     def _on_process_done(self, summary: dict) -> None:
         self._set_busy(False)
         self.app.progress_mode("determinate")
@@ -1071,7 +1096,13 @@ class HomePage(ctk.CTkFrame):
         applied = summary.get("applied", 0)
         skipped = summary.get("skipped", 0)
         out_docx = summary.get("output_docx") or ""
-        report = summary.get("report_json") or ""
+        report = ""
+        if ok:
+            # 只有真成功才去“收养”报告；失败时报告可能压根没生成，
+            # 硬移一次只会在日志里再刷一条 PermissionError 干扰判断。
+            report = self._relocate_report(summary.get("report_json") or "", out_docx)
+        else:
+            report = summary.get("report_json") or ""
 
         if ok:
             self.app.log(f"完成：改动 {applied} 段，跳过 {skipped} 段，"
@@ -1094,9 +1125,13 @@ class HomePage(ctk.CTkFrame):
             dlg.info(self.app, "处理完成。", title="处理成功", detail=detail)
         else:
             err = summary.get("_error") or "处理失败"
-            self.app.log(f"✕ 处理失败：{err}")
+            headline = err.splitlines()[0].strip() if err.strip() else "处理失败"
+            self.app.log(f"✕ 处理失败：{headline}")
+            for line in err.splitlines()[1:]:
+                if line.strip():
+                    self.app.log(f"  {line.rstrip()}")
             self.app.status("处理失败")
-            dlg.error(self.app, "处理失败。", title="处理失败", detail=err)
+            dlg.error(self.app, headline, title="处理失败", detail=err)
 
     def _on_process_failed(self, message: str, detail: str) -> None:
         self._set_busy(False)

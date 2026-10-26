@@ -37,6 +37,19 @@ DEV_LEFTOVERS = (
 )
 
 
+def _requested_execution_level(exe: Path) -> str:
+    """读 exe 内嵌 manifest 的 requestedExecutionLevel（读不到返回 ""）。"""
+    try:
+        raw = exe.read_bytes()
+    except OSError:
+        return ""
+    if b"requireAdministrator" in raw:
+        return "requireAdministrator"
+    if b"asInvoker" in raw:
+        return "asInvoker"
+    return ""
+
+
 def main() -> int:
     here = Path(__file__).resolve().parent
     os.chdir(here)                      # build.bat already cd's here; be explicit
@@ -110,6 +123,18 @@ def main() -> int:
     exe = exes[0]
     rel_dir = os.path.relpath(appdir, dist)
     print(f"exe            : {exe.name}   ({exe.stat().st_size} bytes)")
+
+    # --- 5) 权限清单：必须是 asInvoker（管理员运行会破坏拖拽） -----------------
+    level = _requested_execution_level(exe)
+    if level == "requireAdministrator":
+        print("[ERROR] exe manifest requests administrator (requireAdministrator).")
+        print("        Drag & drop from Explorer will break for normal users;")
+        print("        remove uac_admin=True / requireAdministrator from the spec.")
+        return 1
+    if level == "asInvoker":
+        print("manifest       : asInvoker (normal user, drag & drop works)")
+    else:
+        print("[WARN] manifest level not found - verify the exe runs without elevation")
 
     print("")
     print('self-test - no GUI; "count" should equal the number of built-in presets:')

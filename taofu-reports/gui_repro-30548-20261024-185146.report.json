@@ -1,0 +1,617 @@
+{
+  "report_version": 1,
+  "plugin": "word-format-applier",
+  "ok": false,
+  "partial": true,
+  "dry_run": false,
+  "target_docx": "E:\\dsh_plugins\\word-format-applier\\samples\\target.docx",
+  "output_docx": "E:\\桃符测试\\gui_repro.docx",
+  "report_json": "E:\\dsh_plugins\\word-format-applier\\taofu-reports\\gui_repro-30548-20261024-185146.report.json",
+  "source": {
+    "kind": "preset_text",
+    "resolved_path": "E:\\dsh_plugins\\word-format-applier\\desktop\\dist\\桃符\\presets\\格式要求1.txt",
+    "used_preset": "格式要求1",
+    "preset_file": "E:\\dsh_plugins\\word-format-applier\\desktop\\dist\\桃符\\presets\\格式要求1.txt",
+    "preset_sha256": "50f268f6cc8ff7f7f3da268f82119a852a9ab1208d3f89d704b4b9563c45290d",
+    "sha256": "50f268f6cc8ff7f7f3da268f82119a852a9ab1208d3f89d704b4b9563c45290d",
+    "cache_hit": true,
+    "rule_cache_hit": true,
+    "parsed_by": "text_rules",
+    "rule_count": 41
+  },
+  "rules": {
+    "version": 3,
+    "page": {},
+    "default_font": {},
+    "roles": [
+      "caption",
+      "heading1",
+      "heading2",
+      "normal",
+      "quote",
+      "table_text",
+      "title"
+    ],
+    "role_attributes": {
+      "caption": [
+        "align",
+        "font_ascii",
+        "font_eastasia",
+        "size_pt"
+      ],
+      "heading1": [
+        "align",
+        "font_ascii",
+        "font_eastasia",
+        "size_pt"
+      ],
+      "heading2": [
+        "align",
+        "font_ascii",
+        "font_eastasia",
+        "size_pt"
+      ],
+      "normal": [
+        "align",
+        "first_line_indent_chars",
+        "font_ascii",
+        "font_eastasia",
+        "line_spacing",
+        "line_spacing_rule",
+        "size_pt"
+      ],
+      "quote": [
+        "first_line_indent_chars",
+        "font_ascii",
+        "font_eastasia",
+        "size_pt"
+      ],
+      "table_text": [
+        "font_ascii",
+        "font_eastasia",
+        "size_pt"
+      ],
+      "title": [
+        "align",
+        "bold",
+        "font_ascii",
+        "font_eastasia",
+        "size_pt"
+      ]
+    },
+    "cleanup_categories": [
+      "markdown",
+      "invisible",
+      "punctuation",
+      "spaces",
+      "decorations",
+      "blank_all"
+    ],
+    "structure_signals": [
+      "bold",
+      "numbering",
+      "lead_title",
+      "centered"
+    ]
+  },
+  "validation": {
+    "text_unchanged": true,
+    "text_sha256_before": "8e44d12ea8a1794a963fae7dc7b49f83c406faa326a7a6be15a1bf07c323bae9",
+    "text_sha256_baseline": "8e44d12ea8a1794a963fae7dc7b49f83c406faa326a7a6be15a1bf07c323bae9",
+    "text_sha256_after": "8e44d12ea8a1794a963fae7dc7b49f83c406faa326a7a6be15a1bf07c323bae9",
+    "chars_before": 183,
+    "chars_baseline": 183,
+    "chars_after": 183,
+    "chars_removed_by_cleanup": 0,
+    "paragraphs_before": 14,
+    "paragraphs_baseline": 14,
+    "paragraphs_after": 14
+  },
+  "cleanup": {
+    "enabled": true,
+    "applied": false,
+    "categories": [
+      "markdown",
+      "invisible",
+      "punctuation",
+      "spaces",
+      "decorations",
+      "blank_all"
+    ],
+    "category_labels": [
+      "markdown residue",
+      "invisible characters",
+      "duplicated / orphan punctuation",
+      "whitespace normalisation",
+      "decorative / placeholder symbols",
+      "every blank paragraph"
+    ],
+    "keep_symbols": "%‰°±℃℉※",
+    "remove_symbols": "",
+    "preserve_numbering": true,
+    "paragraphs_scanned": 14,
+    "paragraphs_changed": 0,
+    "paragraphs_removed": 0,
+    "paragraphs_removed_markers": 0,
+    "paragraphs_removed_blank": 0,
+    "paragraphs_removed_blank_all": 0,
+    "heading_hints": 0,
+    "samples": [],
+    "unresolved": []
+  },
+  "structure": {
+    "enabled": true,
+    "applied": false,
+    "categories": [
+      "bold",
+      "numbering",
+      "lead_title",
+      "centered"
+    ],
+    "category_labels": [
+      "whole-paragraph bold",
+      "numbered heading regex",
+      "first-paragraph title",
+      "centred front-matter line"
+    ],
+    "ladder": "official",
+    "scanned": 14,
+    "bold_paragraphs": 0,
+    "bold_signal": true,
+    "ladder_source": "document",
+    "skipped_table": 6,
+    "skipped_styled": 4,
+    "skipped_text": 4,
+    "decimal_rejected": 0,
+    "existing_title": true,
+    "title_signal": [
+      "lead_title",
+      "centered"
+    ],
+    "title_assigned": null,
+    "candidates": 0,
+    "mapped": 0,
+    "headings_mapped": 0,
+    "title_mapped": 0,
+    "by_level": {},
+    "samples": [],
+    "unresolved": []
+  },
+  "stats": {
+    "paragraphs_total": 14,
+    "paragraphs_changed": 14,
+    "paragraphs_skipped": 0,
+    "runs_changed": 14,
+    "properties_applied": 61,
+    "sections_updated": 0,
+    "role_counts": {
+      "title": 1,
+      "heading1": 2,
+      "normal": 3,
+      "quote": 1,
+      "caption": 1,
+      "table_text": 6
+    },
+    "applied_rules": [
+      {
+        "paragraph": 0,
+        "role": "title",
+        "changes": [
+          "align=center",
+          "bold=True",
+          "first_line_indent=0.0字",
+          "font_ascii=黑体",
+          "font_eastasia=黑体",
+          "size=16.0pt"
+        ]
+      },
+      {
+        "paragraph": 1,
+        "role": "heading1",
+        "changes": [
+          "align=left",
+          "first_line_indent=0.0字",
+          "font_ascii=黑体",
+          "font_eastasia=黑体",
+          "size=14.0pt"
+        ]
+      },
+      {
+        "paragraph": 2,
+        "role": "normal",
+        "changes": [
+          "align=justify",
+          "first_line_indent=2.0字",
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "line_spacing=1.5x",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 3,
+        "role": "normal",
+        "changes": [
+          "align=justify",
+          "first_line_indent=2.0字",
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "line_spacing=1.5x",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 4,
+        "role": "heading1",
+        "changes": [
+          "align=left",
+          "first_line_indent=0.0字",
+          "font_ascii=黑体",
+          "font_eastasia=黑体",
+          "size=14.0pt"
+        ]
+      },
+      {
+        "paragraph": 5,
+        "role": "normal",
+        "changes": [
+          "align=justify",
+          "first_line_indent=2.0字",
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "line_spacing=1.5x",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 6,
+        "role": "quote",
+        "changes": [
+          "first_line_indent=2.0字",
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 7,
+        "role": "caption",
+        "changes": [
+          "align=center",
+          "first_line_indent=0.0字",
+          "font_ascii=黑体",
+          "font_eastasia=黑体",
+          "size=10.5pt"
+        ]
+      },
+      {
+        "paragraph": 8,
+        "role": "table_text",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=10.5pt"
+        ]
+      },
+      {
+        "paragraph": 9,
+        "role": "table_text",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=10.5pt"
+        ]
+      },
+      {
+        "paragraph": 10,
+        "role": "table_text",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=10.5pt"
+        ]
+      },
+      {
+        "paragraph": 11,
+        "role": "table_text",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=10.5pt"
+        ]
+      },
+      {
+        "paragraph": 12,
+        "role": "table_text",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=10.5pt"
+        ]
+      },
+      {
+        "paragraph": 13,
+        "role": "table_text",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=10.5pt"
+        ]
+      }
+    ],
+    "skipped_rules": [],
+    "conflicts": [],
+    "unresolved": [],
+    "replaced_direct_formatting": [],
+    "role_sample": [
+      {
+        "i": 0,
+        "role": "title",
+        "reason": "style_name:Title",
+        "style": "Title",
+        "head": "2026 年度工作总结报告"
+      },
+      {
+        "i": 1,
+        "role": "heading1",
+        "reason": "style_name:Heading 1",
+        "style": "Heading 1",
+        "head": "第一部分 总体情况"
+      },
+      {
+        "i": 2,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": "本年度整体运行平稳，各项核心指标均达到既"
+      },
+      {
+        "i": 3,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": "团队规模保持稳定，交付节奏与前一年基本一"
+      },
+      {
+        "i": 4,
+        "role": "heading1",
+        "reason": "style_name:Heading 1",
+        "style": "Heading 1",
+        "head": "第二部分 重点工作"
+      },
+      {
+        "i": 5,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": "一是完成平台迁移；二是完成安全加固；三是"
+      },
+      {
+        "i": 6,
+        "role": "quote",
+        "reason": "style_name:Quote",
+        "style": "Quote",
+        "head": "引用：数据说明一切。"
+      },
+      {
+        "i": 7,
+        "role": "caption",
+        "reason": "style_name:Caption",
+        "style": "Caption",
+        "head": "表 1 关键指标"
+      },
+      {
+        "i": 8,
+        "role": "table_text",
+        "reason": "in_table",
+        "style": "Normal",
+        "head": "指标"
+      },
+      {
+        "i": 9,
+        "role": "table_text",
+        "reason": "in_table",
+        "style": "Normal",
+        "head": "数值"
+      },
+      {
+        "i": 10,
+        "role": "table_text",
+        "reason": "in_table",
+        "style": "Normal",
+        "head": "营业收入"
+      },
+      {
+        "i": 11,
+        "role": "table_text",
+        "reason": "in_table",
+        "style": "Normal",
+        "head": "1200 万元"
+      },
+      {
+        "i": 12,
+        "role": "table_text",
+        "reason": "in_table",
+        "style": "Normal",
+        "head": "客户满意度"
+      },
+      {
+        "i": 13,
+        "role": "table_text",
+        "reason": "in_table",
+        "style": "Normal",
+        "head": "96%"
+      }
+    ]
+  },
+  "applied_rules": [
+    {
+      "paragraph": 0,
+      "role": "title",
+      "changes": [
+        "align=center",
+        "bold=True",
+        "first_line_indent=0.0字",
+        "font_ascii=黑体",
+        "font_eastasia=黑体",
+        "size=16.0pt"
+      ]
+    },
+    {
+      "paragraph": 1,
+      "role": "heading1",
+      "changes": [
+        "align=left",
+        "first_line_indent=0.0字",
+        "font_ascii=黑体",
+        "font_eastasia=黑体",
+        "size=14.0pt"
+      ]
+    },
+    {
+      "paragraph": 2,
+      "role": "normal",
+      "changes": [
+        "align=justify",
+        "first_line_indent=2.0字",
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "line_spacing=1.5x",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 3,
+      "role": "normal",
+      "changes": [
+        "align=justify",
+        "first_line_indent=2.0字",
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "line_spacing=1.5x",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 4,
+      "role": "heading1",
+      "changes": [
+        "align=left",
+        "first_line_indent=0.0字",
+        "font_ascii=黑体",
+        "font_eastasia=黑体",
+        "size=14.0pt"
+      ]
+    },
+    {
+      "paragraph": 5,
+      "role": "normal",
+      "changes": [
+        "align=justify",
+        "first_line_indent=2.0字",
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "line_spacing=1.5x",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 6,
+      "role": "quote",
+      "changes": [
+        "first_line_indent=2.0字",
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 7,
+      "role": "caption",
+      "changes": [
+        "align=center",
+        "first_line_indent=0.0字",
+        "font_ascii=黑体",
+        "font_eastasia=黑体",
+        "size=10.5pt"
+      ]
+    },
+    {
+      "paragraph": 8,
+      "role": "table_text",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=10.5pt"
+      ]
+    },
+    {
+      "paragraph": 9,
+      "role": "table_text",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=10.5pt"
+      ]
+    },
+    {
+      "paragraph": 10,
+      "role": "table_text",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=10.5pt"
+      ]
+    },
+    {
+      "paragraph": 11,
+      "role": "table_text",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=10.5pt"
+      ]
+    },
+    {
+      "paragraph": 12,
+      "role": "table_text",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=10.5pt"
+      ]
+    },
+    {
+      "paragraph": 13,
+      "role": "table_text",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=10.5pt"
+      ]
+    }
+  ],
+  "skipped_rules": [],
+  "conflicts": [],
+  "unresolved": [],
+  "llm": {
+    "calls": 0,
+    "used": false,
+    "reason": "disabled",
+    "cache_hit": false,
+    "budget": {
+      "calls": 0,
+      "max_calls": 2,
+      "estimated_tokens": 0,
+      "soft_token_budget": 30000,
+      "exhausted_reason": null
+    }
+  },
+  "warnings": [],
+  "errors": [
+    "failed to write output: [Errno 13] Permission denied: 'E:\\\\桃符测试\\\\gui_repro.docx'"
+  ],
+  "timings_ms": {
+    "total_ms": 198
+  }
+}

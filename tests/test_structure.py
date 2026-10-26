@@ -86,6 +86,39 @@ class TestNumberingMatch(unittest.TestCase):
         self.assertEqual(match[1], 2)
 
 
+class TestFragmentGuard(unittest.TestCase):
+    """A sentence tail or a lone formula token must never become a heading."""
+
+    def test_sentence_tails_and_formula_tokens_are_fragments(self):
+        for text in (")。本实验实现了四种版本：", ")。回代过程利用内积计算求解。",
+                     "C", "=", "×", "O(n", "3", "n", "1024×1024"):
+            self.assertTrue(structure.looks_like_fragment_text(text), text)
+
+    def test_real_labels_and_headings_are_not_fragments(self):
+        for text in ("实验目的：", "（一）总体要求", "2.1 编程作业 3.1：矩阵乘法优化",
+                     "(1) 概述", "Introduction", "一、问题描述"):
+            self.assertFalse(structure.looks_like_fragment_text(text), text)
+
+    def test_formula_fragment_is_stricter_than_the_heading_guard(self):
+        for text in ("C", "=", "O(n", "1024×1024", "2.56×10−9"):
+            self.assertTrue(structure.looks_like_formula_fragment(text), text)
+        for text in ("N，导致缓存命中率极低。", "1024×1024。下一步", "Introduction"):
+            self.assertFalse(structure.looks_like_formula_fragment(text), text)
+
+    def test_label_line_heuristic_refuses_sentence_tails(self):
+        document = docx.Document()
+        applier_obj = applier.Applier(document, {
+            "styles": {"normal": {}, "heading3": {}}})
+        for text in (")。本实验实现了四种版本：", "C", "=", "×"):
+            paragraph = document.add_paragraph(text)
+            self.assertIsNone(
+                applier_obj._heading_guess(paragraph, text, None, None), text)
+        # a real label line is still allowed to become Heading 3
+        paragraph = document.add_paragraph("实验目的：")
+        self.assertEqual(applier_obj._heading_guess(paragraph, "实验目的：", None, None),
+                         ("heading3", "heuristic:label_line"))
+
+
 class TestBoldSignal(unittest.TestCase):
 
     def test_every_non_empty_run_must_be_bold(self):

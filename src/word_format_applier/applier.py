@@ -20,6 +20,7 @@ Guarantees:
 from __future__ import annotations
 
 import os
+import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -33,7 +34,102 @@ MAX_CLEANUP_SAMPLES = 20
 #: clip length for those samples: the report must never carry whole paragraphs
 SAMPLE_CHARS = 60
 
+#: a paragraph ending with one of these is a finished sentence: fragments after
+#: it start a new paragraph instead of continuing the old one.
+_MERGE_TERMINAL = ("。", "！", "？", "!", "?", "；", ";")
+#: text starting with these closes a formula/sentence that was split in two.
+_MERGE_CONTINUATION = set("。，、；：！？,.;:!?）)]】》”’")
+#: a text paragraph ending with one of these introduces a formula/value.
+_MERGE_INTRODUCERS = (
+    "为", "是", "：", ":", "时间复杂度", "复杂度", "规模", "误差", "跨度",
+    "达到", "等于", "记为", "速度", "长度", "数量", "结果",
+)
+#: a formula fragment starts with a Latin letter, digit or math symbol.
+_MERGE_FORMULA_HEAD_RE = re.compile(r"^[A-Za-z0-9=+\-−×÷*/^_(\[{（【<>≤≥≠]")
+#: an unfinished formula ends with one of these; the next fragment continues it.
+_MERGE_OPERATORS = set("=+-−×÷*/^_,，:：([{（【")
+#: a metadata line such as "姓名：张三": two of those in a row are not one sentence.
+_MERGE_LABEL_RE = re.compile(r"^[^：:\n]{1,8}[：:]")
+
+
+def _norm_formula(text: str) -> str:
+    """Whitespace-free form used to compare a fragment run with its rewrite."""
+    return re.sub(r"\s+", "", text or "")
+
+
+def _visible_len(text: str) -> int:
+    return len(_norm_formula(text))
+
+
+def _looks_like_label_line(text: str) -> bool:
+    return bool(_MERGE_LABEL_RE.match((text or "").strip()))
+
+
+def _merge_join(left: str, right: str) -> str:
+    """Concatenate two split pieces without inventing/dropping spacing."""
+    left = left or ""
+    right = right or ""
+    if not left:
+        return right
+    if not right:
+        return left
+    stripped = right.lstrip()
+    first = stripped[0] if stripped else ""
+    left_rstripped = left.rstrip()
+    if first and (first in _MERGE_CONTINUATION or _MERGE_FORMULA_HEAD_RE.match(first)):
+        if left_rstripped and _is_cjk_char(left_rstripped[-1]) and first not in _MERGE_CONTINUATION:
+            left = left_rstripped + " "
+        else:
+            left = left_rstripped
+    value = left + right
+    value = re.sub(r"[ \t\u3000]+([)）】\],，。；：!?！？])", r"\1", value)
+    value = re.sub(r"[ \t\u3000]{2,}", " ", value)
+    return value
+
+
+def _is_cjk_char(char: str) -> bool:
+    return bool(char) and "\u3400" <= char <= "\u9fff"
+
+
+def _ends_terminal(text: str) -> bool:
+    return (text or "").rstrip().endswith(_MERGE_TERMINAL)
+
+
+def _is_short(text: str) -> bool:
+    return _visible_len(text) < 15
+
+
+def _ends_introducer(text: str) -> bool:
+    return (text or "").rstrip().endswith(_MERGE_INTRODUCERS)
+
+
+def _starts_continuation(text: str) -> bool:
+    stripped = (text or "").lstrip()
+    return bool(stripped) and stripped[0] in _MERGE_CONTINUATION
+
+
+def _starts_formula(text: str) -> bool:
+    stripped = (text or "").lstrip()
+    return bool(stripped) and bool(_MERGE_FORMULA_HEAD_RE.match(stripped[0]))
+
+
+def _ends_open_formula(text: str) -> bool:
+    stripped = (text or "").rstrip()
+    if not stripped:
+        return False
+    if stripped[-1] in _MERGE_OPERATORS:
+        return True
+    # "…O(n" or "…2.56×10": a formula token at the very end is still unfinished.
+    return bool(re.search(r"[=+\-−×÷*/^_(\[{（\[][A-Za-z0-9]*$", stripped))
+
+
+def _starts_operator(text: str) -> bool:
+    stripped = (text or "").lstrip()
+    return bool(stripped) and stripped[0] in _MERGE_OPERATORS
+
 #: XML that makes an apparently-empty paragraph meaningful; never remove those.
+#: ``w:br`` is special-cased in :meth:`Applier._paragraph_is_removable`: a soft
+#: return in an otherwise blank paragraph is padding, a page/column break is not.
 PROTECTED_PARAGRAPH_TAGS = (
     "w:drawing", "w:pict", "w:object", "w:br", "w:fldChar", "w:instrText",
     "w:hyperlink", "w:sectPr", "w:footnoteReference", "w:endnoteReference",
@@ -63,6 +159,27 @@ def _element_text(element) -> str:
     walks; sibling paragraphs are inspected straight from the XML.
     """
     return "".join(node.text or "" for node in element.iter(docxio.qn("w:t")))
+
+
+def _has_hard_break(element) -> bool:
+    """True when the paragraph owns a page/column break (never a soft return).
+
+    ``<w:br/>`` without ``w:type`` (or with ``textWrapping``) is Shift+Enter and
+    renders as an empty line, so it is safe to delete with the paragraph. A page
+    or column break is layout, not blank text, and must stay protected.
+    """
+    for br in element.iter(docxio.qn("w:br")):
+        br_type = br.get(docxio.qn("w:type"))
+        if br_type and br_type != "textWrapping":
+            return True
+    return False
+
+
+def _pt_to_twips(value: Any) -> str:
+    try:
+        return str(int(round(float(value) * ruleschema.PT_TO_TWIPS)))
+    except (TypeError, ValueError):
+        return "0"
 
 
 def _in_table(paragraph) -> bool:
@@ -141,6 +258,7 @@ class Applier:
         self.runs_changed = 0
         self.properties_applied = 0
         self.sections_updated = 0
+        self.spacing_forced = 0
 
     # ------------------------------------------------------------------ #
     # text cleanup (opt-in, runs before any formatting)
@@ -216,6 +334,15 @@ class Applier:
         if removed_blanks or removed_all_blanks:
             self._drop_entries(entries)
 
+        # Split-line fragments / inline formulas: merge before any paragraph gets
+        # a role or a style, so the heading heuristics only ever see whole
+        # sentences. This is a text change, hence a declared cleanup category.
+        fragment_info: Dict[str, Any] = {"enabled": False}
+        if cleaner.config.get("fragments"):
+            fragment_info = self._merge_fragment_entries(entries)
+            if fragment_info.get("applied"):
+                self._drop_entries(entries)
+
         # The surviving paragraphs, in document order, become the list the role
         # mapper works on. Rebuilding it here (instead of asking the document
         # again) keeps the index -> role-hint mapping valid: lxml hands out fresh
@@ -231,7 +358,7 @@ class Applier:
 
         removed = removed_markers + removed_blanks + removed_all_blanks
         result.update({
-            "applied": bool(changed or removed),
+            "applied": bool(changed or removed or fragment_info.get("applied")),
             "paragraphs_scanned": len(entries),
             "paragraphs_changed": changed,
             "paragraphs_removed": removed,
@@ -240,8 +367,178 @@ class Applier:
             "paragraphs_removed_blank_all": removed_all_blanks,
             "heading_hints": len(self.cleanup_hints),
             "samples": samples,
+            "fragment_merge": fragment_info,
             "unresolved": [item for item in self.unresolved if item.get("scope") == "cleanup"],
         })
+        return result
+
+    def _fragment_entry_is_heading(self, entry: Dict[str, Any], structure_mod) -> bool:
+        """A real heading must never be merged into the paragraph after it."""
+        paragraph = entry["paragraph"]
+        if _in_table(paragraph):
+            return True
+        style_name, _style_id, _outline = _style_ident(paragraph)
+        if (structure_mod.is_heading_style(style_name or "")
+                or structure_mod.is_title_style(style_name or "")
+                or structure_mod.is_reserved_style(style_name or "")):
+            return True
+        if structure_mod.whole_paragraph_bold(paragraph):
+            return True
+        return bool(structure_mod.numbering_match(entry.get("_m_text") or ""))
+
+    def _should_merge_fragments(self, cur: Dict[str, Any], nxt: Dict[str, Any]) -> bool:
+        if cur["_m_heading"] or nxt["_m_heading"]:
+            return False
+        left = cur["_m_text"]
+        right = nxt["_m_text"]
+        if not left.strip() or not right.strip():
+            return False
+        # "姓名：张三" / "学号：..." are parallel metadata labels, not a sentence.
+        if _looks_like_label_line(left) and _looks_like_label_line(right):
+            return False
+        if _ends_terminal(left):
+            return False
+        if _starts_continuation(right):
+            return True
+        if cur["_m_frag"] and nxt["_m_frag"]:
+            return True
+        if _ends_introducer(left) and _starts_formula(right):
+            return True
+        if _is_short(left) and _is_short(right) and not _ends_terminal(right):
+            return True
+        if nxt["_m_frag"] and (cur["_m_frag"] or _ends_open_formula(left)
+                               or _starts_operator(right)):
+            return True
+        if (_is_short(left) or _ends_introducer(left)) and nxt["_m_frag"]:
+            return True
+        return False
+
+    def _normalise_merged_style(self, paragraph) -> None:
+        try:
+            name = paragraph.style.name
+        except Exception:  # pragma: no cover - defensive
+            return
+        if name == "Normal":
+            return
+        try:
+            paragraph.style = self.document.styles["Normal"]
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+    def _merge_fragment_entries(self, entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Rebuild sentences split by a bad DOCX/PDF round-trip.
+
+        Two passes, both strictly local:
+
+        1. **duplicate equation** - converters emit ``C`` ``=`` ``A`` ``×`` ``B``
+           as separate paragraphs and then repeat ``C=A×B`` at the start of the
+           next real line. When a fragment run is exactly that leading formula
+           (or repeats itself), the fragment copy is dropped instead of doubling
+           the text in the merged paragraph.
+        2. **short-line merge** - a run of short, unterminated lines becomes one
+           ``Normal`` paragraph; headings (style, bold, numbering, tables) and
+           ``label：value`` metadata lines are never touched.
+        """
+        result: Dict[str, Any] = {
+            "enabled": True, "applied": False, "paragraphs_merged": 0,
+            "duplicates_dropped": 0, "samples": [], "duplicate_samples": [],
+        }
+        from . import structure as structure_mod
+
+        alive: List[Dict[str, Any]] = []
+        for entry in entries:
+            if entry.get("drop") or entry.get("detached"):
+                continue
+            text = entry.get("after") or ""
+            if not text.strip():
+                continue
+            entry["_m_text"] = text
+            entry["_m_frag"] = structure_mod.looks_like_formula_fragment(text)
+            entry["_m_heading"] = self._fragment_entry_is_heading(entry, structure_mod)
+            alive.append(entry)
+        if len(alive) < 2:
+            return result
+
+        # ---- pass 1: remove the duplicated fragment copy of an equation ----
+        position = 0
+        while position < len(alive):
+            if not alive[position]["_m_frag"]:
+                position += 1
+                continue
+            end = position
+            while end + 1 < len(alive) and alive[end + 1]["_m_frag"]:
+                end += 1
+            run = alive[position:end + 1]
+            following = alive[end + 1] if end + 1 < len(alive) else None
+            run_norm = "".join(_norm_formula(item["_m_text"]) for item in run)
+            dropped: List[Dict[str, Any]] = []
+            if (run_norm and following is not None and not following["_m_frag"]
+                    and not following["_m_heading"]):
+                following_norm = _norm_formula(following["_m_text"])
+                if following_norm.startswith(run_norm):
+                    tail = following_norm[len(run_norm):]
+                    # "N" followed by "N，导致" is a duplicate; "N" followed by
+                    # "Nanjing" is just two different paragraphs.
+                    if not tail or not tail[0].isalnum():
+                        dropped = list(run)
+            if not dropped:
+                for cut in range(1, len(run)):
+                    left = "".join(_norm_formula(item["_m_text"]) for item in run[:cut])
+                    right = "".join(_norm_formula(item["_m_text"]) for item in run[cut:])
+                    if len(left) >= 2 and len(right) >= 2 and left.startswith(right):
+                        dropped = list(run[:cut])
+                        break
+            if dropped:
+                for entry in dropped:
+                    if not self._paragraph_is_removable(entry["paragraph"]):
+                        continue
+                    entry["drop"] = True
+                    entry["merged_duplicate"] = True
+                    result["duplicates_dropped"] += 1
+                    if len(result["duplicate_samples"]) < MAX_CLEANUP_SAMPLES:
+                        result["duplicate_samples"].append({
+                            "paragraph": entry.get("index"),
+                            "dropped_fragment": _clip(entry["_m_text"])})
+                position += len(dropped)
+                continue
+            position = end + 1
+
+        alive = [entry for entry in alive if not entry.get("drop")]
+
+        # ---- pass 2: merge surviving short lines into one Normal paragraph ----
+        position = 0
+        while position < len(alive) - 1:
+            cur, nxt = alive[position], alive[position + 1]
+            # the first non-empty paragraph is the document title candidate
+            if position == 0 and not cur["_m_frag"]:
+                position += 1
+                continue
+            if not self._should_merge_fragments(cur, nxt):
+                position += 1
+                continue
+            # never detach a paragraph that owns a drawing/field/page break
+            if not self._paragraph_is_removable(nxt["paragraph"]):
+                position += 1
+                continue
+            before = cur["_m_text"]
+            merged = _merge_join(before, nxt["_m_text"])
+            if not self._write_paragraph_text(cur["paragraph"], merged):
+                position += 1
+                continue
+            self._normalise_merged_style(cur["paragraph"])
+            cur["after"] = merged
+            cur["_m_text"] = merged
+            cur["_m_frag"] = structure_mod.looks_like_formula_fragment(merged)
+            nxt["drop"] = True
+            nxt["merged_into"] = cur.get("index")
+            result["paragraphs_merged"] += 1
+            if len(result["samples"]) < MAX_CLEANUP_SAMPLES:
+                result["samples"].append({
+                    "paragraph": cur.get("index"),
+                    "before": _clip(before), "after": _clip(merged)})
+            del alive[position + 1]
+
+        result["applied"] = bool(result["paragraphs_merged"] or result["duplicates_dropped"])
         return result
 
     def _drop_entries(self, entries: List[Dict[str, Any]]) -> int:
@@ -285,7 +582,19 @@ class Applier:
 
     def _paragraph_is_removable(self, paragraph, *, allow_last: bool = False) -> bool:
         element = paragraph._p
+        # A blank paragraph made of soft returns ("\n" in paragraph.text, <w:br/>
+        # in XML) or spaces is still an empty paragraph and must be droppable.
+        # Only protect w:br when the paragraph carries real text or a page/column
+        # break: a line wrap inside a sentence is content, not padding.
+        blank = not docxio.paragraph_text(paragraph).strip()
         for tag in PROTECTED_PARAGRAPH_TAGS:
+            if tag == "w:br":
+                breaks = list(element.iter(docxio.qn("w:br")))
+                if not breaks:
+                    continue
+                if not blank or _has_hard_break(element):
+                    return False
+                continue
             for _ in element.iter(docxio.qn(tag)):
                 return False
         parent = element.getparent()
@@ -494,6 +803,12 @@ class Applier:
 
     def _heading_guess(self, paragraph, text: str, body_size: Optional[float],
                        style_default_size: Optional[float]) -> Optional[Tuple[str, str]]:
+        # Safety valve: a sentence tail ("）。本实验实现了四种版本：") or a pure
+        # formula token ("C", "=", "×", "O(n") is never a heading - no matter
+        # which heuristic (bold / larger font / trailing colon) would fire.
+        from . import structure as structure_mod
+        if structure_mod.looks_like_fragment_text(text):
+            return None
         if len(text) > 60 or text.endswith(("。", ".", "！", "!", "？", "?", "；", ";")):
             return None
         if len(text.split()) > 14:
@@ -528,6 +843,9 @@ class Applier:
         self.build_role_map()
         for index, paragraph in enumerate(self.paragraphs):
             self._apply_paragraph(index, paragraph)
+        # Style application is done; now make the *effective* paragraph spacing
+        # independent of the style hierarchy (see _force_paragraph_spacing).
+        self.spacing_forced = self._force_paragraph_spacing()
         if self.apply_page and self.page_rules:
             self._apply_page()
         return self.stats()
@@ -809,6 +1127,68 @@ class Applier:
 
         return changed
 
+    def _force_paragraph_spacing(self) -> int:
+        """Rewrite the direct ``w:spacing`` of every paragraph after styling.
+
+        ``python-docx`` writes only ``w:before``/``w:after``. A style (or text
+        pasted from HTML) can still contribute ``w:beforeLines`` /
+        ``w:afterLines`` / ``w:*Autospacing`` and ``w:contextualSpacing``; Word
+        keeps honouring those and the paragraph gaps survive even when the
+        direct values are zero. Rebuilding the direct spacing node with absolute
+        twips (0 unless the rule asks for a non-zero gap) and switching
+        contextual spacing off makes the result independent of the style chain.
+        Line spacing (``w:line``/``w:lineRule``) is intentionally preserved.
+        """
+        from docx.oxml import OxmlElement
+
+        forced = 0
+        for index, paragraph in enumerate(self.paragraphs):
+            role = self.role_by_paragraph.get(index, "normal")
+            spec = self._spec_for(role)
+            before = _pt_to_twips(spec.get("space_before_pt", 0))
+            after = _pt_to_twips(spec.get("space_after_pt", 0))
+            try:
+                pPr = paragraph._p.get_or_add_pPr()
+                spacing = pPr.find(docxio.qn("w:spacing"))
+                if spacing is None:
+                    spacing = pPr.get_or_add_spacing()
+                    touched = True
+                else:
+                    touched = False
+                # Inline/auto spacing outranks w:before/w:after in Word; drop it.
+                for attr in ("w:beforeLines", "w:afterLines",
+                             "w:beforeAutospacing", "w:afterAutospacing"):
+                    if spacing.get(docxio.qn(attr)) is not None:
+                        del spacing.attrib[docxio.qn(attr)]
+                        touched = True
+                for attr, value in (("w:before", before), ("w:after", after)):
+                    if spacing.get(docxio.qn(attr)) != value:
+                        spacing.set(docxio.qn(attr), value)
+                        touched = True
+                # Word's "Don't add space between paragraphs of the same style":
+                # an explicit false on the paragraph beats whatever the style says.
+                ctx = pPr.find(docxio.qn("w:contextualSpacing"))
+                if ctx is None:
+                    ctx = OxmlElement("w:contextualSpacing")
+                    pPr.insert_element_before(
+                        ctx,
+                        "w:mirrorIndents", "w:suppressOverlap", "w:jc",
+                        "w:textDirection", "w:textAlignment", "w:textboxTightWrap",
+                        "w:outlineLvl", "w:divId", "w:cnfStyle", "w:rPr",
+                        "w:sectPr", "w:pPrChange")
+                    ctx.set(docxio.qn("w:val"), "0")
+                    touched = True
+                elif (ctx.get(docxio.qn("w:val")) or "").lower() not in ("0", "false", "off"):
+                    ctx.set(docxio.qn("w:val"), "0")
+                    touched = True
+            except Exception as exc:  # pragma: no cover - defensive
+                self.unresolved.append({"paragraph": index, "role": role,
+                                        "reason": "cannot force spacing: %s" % exc})
+                continue
+            if touched:
+                forced += 1
+        return forced
+
     def _apply_page(self) -> None:
         from docx.shared import Cm
 
@@ -856,6 +1236,7 @@ class Applier:
             "paragraphs_skipped": self.paragraphs_skipped,
             "runs_changed": self.runs_changed,
             "properties_applied": self.properties_applied,
+            "spacing_forced": self.spacing_forced,
             "sections_updated": self.sections_updated,
             "role_counts": self.role_counts,
             "applied_rules": self.applied_rules,
@@ -909,8 +1290,9 @@ def apply_format(target_docx: str,
     if os.path.abspath(output_docx) == target_docx:
         raise FormatError("output path must differ from the target (the original is never overwritten)")
     if report_path is None:
-        base, _ = os.path.splitext(output_docx)
-        report_path = base + ".report.json"
+        # 报告统一落系统临时目录：exe 同级（尤其 Program Files）可能不可写，
+        # 且写报告失败不该让一次成功的格式处理整体失败。
+        report_path = report_mod.default_report_path(output_docx)
     report_path = os.path.abspath(report_path)
 
     document = docxio.open_document(target_docx)
@@ -1009,12 +1391,14 @@ def apply_format(target_docx: str,
 
     written_output = None
     partial = False
+    save_error = ""
     if not dry_run and text_unchanged:
         try:
             docxio.save_document(document, output_docx)
             written_output = output_docx
         except Exception as exc:
-            errors.append("failed to write output: %s" % exc)
+            save_error = "%s: %s" % (type(exc).__name__, exc)
+            errors.append("failed to write output: %s（%s）" % (output_docx, save_error))
             partial = True
     elif dry_run:
         written_output = None
@@ -1025,7 +1409,9 @@ def apply_format(target_docx: str,
     report = report_mod.build_report(
         ok=bool(text_unchanged and not errors),
         target_docx=target_docx,
-        output_docx=written_output or (None if dry_run else output_docx),
+        # 只有真的落盘了才报 output_docx：保存失败时仍报预期路径会让界面去
+        # 打开一个不存在的文件，把失败伪装成成功。
+        output_docx=written_output,
         report_json=report_path,
         dry_run=dry_run,
         source_info=source_meta,
@@ -1048,5 +1434,18 @@ def apply_format(target_docx: str,
         timings=timings,
         partial=partial,
     )
-    report_mod.write_reports(report, report_path, markdown_report_path)
-    return report_mod.short_summary(report)
+    # 报告是附属产物：docx 已经落盘时，report.json 写不进去/移不动只能降级为
+    # 一条 WARN，绝不能把一次成功的格式处理判成失败（退出码 1）。
+    report_error = ""
+    try:
+        report_mod.write_reports(report, report_path, markdown_report_path)
+    except Exception as exc:  # noqa: BLE001 - 任何报告侧异常都只降级
+        report_error = "%s: %s" % (type(exc).__name__, exc)
+        log("report write failed: %s" % report_error)
+        report["report_error"] = report_error
+        report["warnings"].append("[WARN] 报告文件移动失败，已跳过（%s）" % report_error)
+    summary = report_mod.short_summary(report)
+    if report_error:
+        # 报告没写出来，就别再给界面一个不存在的路径
+        summary["report_json"] = None
+    return summary

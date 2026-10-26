@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 #: every category, in report order.
 CLEANUP_CATEGORIES: Tuple[str, ...] = (
     "markdown", "invisible", "punctuation", "spaces", "decorations",
-    "blank_lines", "blank_all",
+    "fragments", "blank_lines", "blank_all",
 )
 
 CATEGORY_LABELS: Dict[str, str] = {
@@ -39,6 +39,7 @@ CATEGORY_LABELS: Dict[str, str] = {
     "punctuation": "duplicated / orphan punctuation",
     "spaces": "whitespace normalisation",
     "decorations": "decorative / placeholder symbols",
+    "fragments": "fragment line merging",
     "blank_lines": "redundant blank paragraphs",
     "blank_all": "every blank paragraph",
 }
@@ -95,13 +96,26 @@ _LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 _LINK_REF_RE = re.compile(r"\[([^\]]*)\]\[[^\]]*\]")
 _AUTOLINK_RE = re.compile(r"<((?:https?://|mailto:|ftp://)[^>\s]+)>")
 _STRIKE_RE = re.compile(r"~~(?=\S)(.+?)(?<=\S)~~")
-_EMPH_PATTERNS: Tuple[Tuple[re.Pattern, str], ...] = (
+_UNDERSCORE_EMPH_RE = re.compile(
+    r"(?<![A-Za-z0-9_])_(?=\S)([^_]+?)(?<=\S)_(?![A-Za-z0-9_])")
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _underscore_emph_sub(match: "re.Match") -> str:
+    """Leave ``_mm256_`` / ``__m256`` alone; only strip real ``_emphasis_``."""
+    inner = match.group(1)
+    if _IDENTIFIER_RE.match(inner):
+        return match.group(0)
+    return inner
+
+
+_EMPH_PATTERNS: Tuple[Tuple[re.Pattern, Any], ...] = (
     (re.compile(r"\*\*\*(?=\S)(.+?)(?<=\S)\*\*\*"), r"\1"),
     (re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*"), r"\1"),
     (re.compile(r"(?<![A-Za-z0-9*])\*(?=\S)([^*]+?)(?<=\S)\*(?![A-Za-z0-9*])"), r"\1"),
     (re.compile(r"___(?=\S)(.+?)(?<=\S)___"), r"\1"),
     (re.compile(r"__(?=\S)(.+?)(?<=\S)__"), r"\1"),
-    (re.compile(r"(?<![A-Za-z0-9_])_(?=\S)([^_]+?)(?<=\S)_(?![A-Za-z0-9_])"), r"\1"),
+    (_UNDERSCORE_EMPH_RE, _underscore_emph_sub),
 )
 _ESCAPE_RE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!~|>])")
 _TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9]*(?:\s[^<>]*)?/?>")
@@ -109,21 +123,26 @@ _ENTITY_RE = re.compile(r"&(nbsp|amp|lt|gt|quot|apos|#39);", re.I)
 _ENTITY_MAP = {"nbsp": " ", "amp": "&", "lt": "<", "gt": ">",
                "quot": '"', "apos": "'", "#39": "'"}
 #: leftover unmatched emphasis / rule markers, e.g. a stray ``**`` or ``___``.
-_MARKER_RUN_RE = re.compile(r"[*_#~]{2,}|={3,}")
+#: Only *runs of the same* marker: ``_*`` in ``_mm256_*`` is code, not markdown.
+#: ``__m256`` is a type name, so a leading ``__`` followed by a word survives.
+_MARKER_RUN_RE = re.compile(r"\*{2,}|#{2,}|~{2,}|={3,}|_{2,}(?![A-Za-z0-9_])")
 
 # --------------------------------------------------------------------------- #
 # punctuation / whitespace / orphan markers
 # --------------------------------------------------------------------------- #
 
 #: ``……`` and ``——`` are legitimate; only genuinely duplicated marks collapse.
-_PUNCT_RUN_RE = re.compile(r"([，。；：、！？,;:!?])\1+")
+#: ASCII ``:`` is not in the set: ``std::chrono`` is C++, not a typo.
+_PUNCT_RUN_RE = re.compile(r"([，。；：、！？,;!?])\1+")
 _DOT_RUN_RE = re.compile(r"\.{4,}")
 _SPACE_RUN_RE = re.compile(r"[ \t\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]+")
 #: dangling marks at the edges of a paragraph: separators and markdown leftovers.
 #: ``：`` is deliberately *not* in the trailing set — "要求如下：" is normal prose,
-#: and the heading heuristic keys off a trailing colon.
-_LEAD_JUNK_RE = re.compile(r"^[\s，,、；;：:|/\\~*#=]+")
-_TRAIL_JUNK_RE = re.compile(r"[\s，,、；;/|\\~*#=]+$")
+#: and the heading heuristic keys off a trailing colon. ``=`` and ``\`` are
+#: deliberately not in either set: "=" is an equation fragment, a trailing "\"
+#: is an empty table cell, and "*" in "_mm256_*" is code, not markdown.
+_LEAD_JUNK_RE = re.compile(r"^[\s，,、；;：:|/~#]+")
+_TRAIL_JUNK_RE = re.compile(r"[\s，,、；;/|~#]+$")
 #: only the ASCII hyphen is a markdown leftover; ``——``/``––`` are real Chinese
 #: punctuation (破折号) and trailing ``2020-`` is a range, so both are spared.
 _LEAD_DASH_RE = re.compile(r"^-+(?![0-9])")

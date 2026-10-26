@@ -1,0 +1,272 @@
+{
+  "report_version": 1,
+  "plugin": "word-format-applier",
+  "ok": true,
+  "partial": false,
+  "dry_run": false,
+  "target_docx": "E:\\dsh_plugins\\word-format-applier\\wfa-br-fl0gy4fr\\in.docx",
+  "output_docx": "E:\\dsh_plugins\\word-format-applier\\wfa-br-fl0gy4fr\\out.docx",
+  "report_json": "E:\\dsh_plugins\\word-format-applier\\wfa-br-fl0gy4fr\\report.json",
+  "source": {
+    "kind": "text",
+    "resolved_path": null,
+    "used_preset": null,
+    "preset_file": null,
+    "preset_sha256": null,
+    "sha256": null,
+    "cache_hit": false,
+    "rule_cache_hit": false,
+    "parsed_by": "text_rules",
+    "rule_count": 6
+  },
+  "rules": {
+    "version": 3,
+    "page": {},
+    "default_font": {},
+    "roles": [
+      "normal"
+    ],
+    "role_attributes": {
+      "normal": [
+        "font_ascii",
+        "font_eastasia",
+        "size_pt",
+        "space_after_pt",
+        "space_before_pt"
+      ]
+    },
+    "cleanup_categories": [
+      "blank_all"
+    ],
+    "structure_signals": []
+  },
+  "validation": {
+    "text_unchanged": true,
+    "text_sha256_before": "c9d26bede1a689971ec72b70d38c4db40e17a46920b96cdb8c883f13f6032cd6",
+    "text_sha256_baseline": "dc82393a88f4bbebd761d8f0e8777cf277b18a6ad4937a318547c1b9545d0c85",
+    "text_sha256_after": "dc82393a88f4bbebd761d8f0e8777cf277b18a6ad4937a318547c1b9545d0c85",
+    "chars_before": 26,
+    "chars_baseline": 22,
+    "chars_after": 22,
+    "chars_removed_by_cleanup": 4,
+    "paragraphs_before": 6,
+    "paragraphs_baseline": 5,
+    "paragraphs_after": 5
+  },
+  "cleanup": {
+    "enabled": true,
+    "applied": true,
+    "categories": [
+      "blank_all"
+    ],
+    "category_labels": [
+      "every blank paragraph"
+    ],
+    "keep_symbols": "%‰°±℃℉§¶†‡",
+    "remove_symbols": "",
+    "preserve_numbering": false,
+    "paragraphs_scanned": 6,
+    "paragraphs_changed": 0,
+    "paragraphs_removed": 1,
+    "paragraphs_removed_markers": 0,
+    "paragraphs_removed_blank": 0,
+    "paragraphs_removed_blank_all": 1,
+    "heading_hints": 0,
+    "samples": [],
+    "fragment_merge": {
+      "enabled": false
+    },
+    "unresolved": []
+  },
+  "structure": {
+    "enabled": false,
+    "applied": false
+  },
+  "stats": {
+    "paragraphs_total": 5,
+    "paragraphs_changed": 5,
+    "paragraphs_skipped": 0,
+    "runs_changed": 3,
+    "properties_applied": 25,
+    "sections_updated": 0,
+    "role_counts": {
+      "normal": 5
+    },
+    "applied_rules": [
+      {
+        "paragraph": 0,
+        "role": "normal",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt",
+          "space_after=0.0pt",
+          "space_before=0.0pt"
+        ]
+      },
+      {
+        "paragraph": 1,
+        "role": "normal",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt",
+          "space_after=0.0pt",
+          "space_before=0.0pt"
+        ]
+      },
+      {
+        "paragraph": 2,
+        "role": "normal",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt",
+          "space_after=0.0pt",
+          "space_before=0.0pt"
+        ]
+      },
+      {
+        "paragraph": 3,
+        "role": "normal",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt",
+          "space_after=0.0pt",
+          "space_before=0.0pt"
+        ]
+      },
+      {
+        "paragraph": 4,
+        "role": "normal",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt",
+          "space_after=0.0pt",
+          "space_before=0.0pt"
+        ]
+      }
+    ],
+    "skipped_rules": [],
+    "conflicts": [],
+    "unresolved": [],
+    "replaced_direct_formatting": [],
+    "role_sample": [
+      {
+        "i": 0,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": "第一段正文"
+      },
+      {
+        "i": 1,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": ""
+      },
+      {
+        "i": 2,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": "第二段正文"
+      },
+      {
+        "i": 3,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": ""
+      },
+      {
+        "i": 4,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": "第三段正文"
+      }
+    ]
+  },
+  "applied_rules": [
+    {
+      "paragraph": 0,
+      "role": "normal",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt",
+        "space_after=0.0pt",
+        "space_before=0.0pt"
+      ]
+    },
+    {
+      "paragraph": 1,
+      "role": "normal",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt",
+        "space_after=0.0pt",
+        "space_before=0.0pt"
+      ]
+    },
+    {
+      "paragraph": 2,
+      "role": "normal",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt",
+        "space_after=0.0pt",
+        "space_before=0.0pt"
+      ]
+    },
+    {
+      "paragraph": 3,
+      "role": "normal",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt",
+        "space_after=0.0pt",
+        "space_before=0.0pt"
+      ]
+    },
+    {
+      "paragraph": 4,
+      "role": "normal",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt",
+        "space_after=0.0pt",
+        "space_before=0.0pt"
+      ]
+    }
+  ],
+  "skipped_rules": [],
+  "conflicts": [],
+  "unresolved": [],
+  "llm": {
+    "calls": 0,
+    "used": false,
+    "reason": "disabled",
+    "cache_hit": false,
+    "budget": {
+      "calls": 0,
+      "max_calls": 2,
+      "estimated_tokens": 0,
+      "soft_token_budget": 30000,
+      "exhausted_reason": null
+    }
+  },
+  "warnings": [],
+  "errors": [],
+  "timings_ms": {
+    "total_ms": 26
+  }
+}

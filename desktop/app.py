@@ -234,8 +234,14 @@ class FormatApp(ctk.CTk):
         #: 最近一次 save_settings() 的真实失败原因/落点（给设置页展示具体错误）
         self.last_save_error: str = ""
         self.last_save_path = cfg.CONFIG_PATH
+        #: 所有配置目录都写不进时只弹一次提示，避免每次改设置都弹
+        self._save_error_notified = False
 
         self.settings = cfg.load_settings()
+        # 所有候选目录都写不进时，即使不是首次启动也强制走一次保存，
+        # 让 save_settings() 弹出“配置文件无法保存”的提示（只弹一次）。
+        if cfg.pick_writable_data_dir() is None:
+            self.settings.first_run = True
         # 输出目录落实：config.json 里没有（首次启动）→ 用户文档目录并落盘
         self.settings.output_dir = cfg.ensure_output_dir(self.settings.output_dir)
         if self.settings.first_run:
@@ -710,11 +716,12 @@ class FormatApp(ctk.CTk):
         self.log(f"主题切换 → {theme}")
         self.status(f"主题已切换为「{theme}」")
 
-    def save_settings(self) -> bool:
-        """写 config.json；失败时弹窗由调用方决定，这里只记录真实原因。
+    def save_settings(self, notify: bool = True) -> bool:
+        """写 config.json；失败时记录真实原因，必要时弹一次提示。
 
-        ``last_save_error`` / ``last_save_path`` 供界面展示：不再是笼统的
-        “不可写”，而是带 WinError / errno / 路径的具体原因。
+        候选目录 A→D 全写不进时，弹窗文案统一用
+        ``cfg.CONFIG_UNWRITABLE_MESSAGE``（设置页自己会弹详细版时传
+        ``notify=False``，避免弹两次）。
         """
         ok, target, error = cfg.save_settings_ex(self.settings)
         self.last_save_path = target
@@ -722,9 +729,19 @@ class FormatApp(ctk.CTk):
         if not ok:
             self.log(f"配置保存失败：{error}")
             self.status(f"配置保存失败：{cfg.display_path(target)}")
+            if notify and not self._save_error_notified:
+                self._save_error_notified = True
+                try:
+                    dlg.error(self, cfg.CONFIG_UNWRITABLE_MESSAGE,
+                              title="配置无法保存", detail=error)
+                except Exception as exc:  # noqa: BLE001 - 弹窗失败不能反过来炸主流程
+                    self.log(f"配置失败提示弹窗打不开：{type(exc).__name__}: {exc}")
             return False
         if target != cfg.CONFIG_PATH:
-            self.log(f"主位置不可写，配置已改存到 {cfg.display_path(target)}")
+            where = cfg.config_location_label(target)
+            self.log(f"主位置不可写，配置已改存到 {cfg.display_path(target)}（{where}）")
+            # 状态栏说人话：用户不需要看懂 %APPDATA% 还是 dist 目录
+            self.status(f"已存至{where}（主位置不可写，配置已自动改存）")
         return True
 
     # ------------------------------------------------------------------ #
@@ -751,6 +768,14 @@ class FormatApp(ctk.CTk):
             self.log("没有找到可用预设（presets/ 与用户预设目录都是空的）")
             self.status("就绪 · 未找到预设")
         self.log(f"用户预设目录：{cfg.display_path(pl.user_presets_dir())}")
+        active_cfg = cfg.active_config_path()
+        if active_cfg != cfg.CONFIG_PATH:
+            # 降级不是错误，别让用户以为配置丢了：说清楚“存哪了、还能用”
+            label = cfg.config_location_label(active_cfg)
+            self.log(f"配置来自{label}：{cfg.display_path(active_cfg)}"
+                     "（主位置不可写，已自动改存）")
+            prefix = f"就绪 · {len(presets)} 个预设" if presets else "就绪"
+            self.status(f"{prefix} · 配置已存至{label}")
         self.check_legacy_files()
 
     # ------------------------------------------------------------------ #

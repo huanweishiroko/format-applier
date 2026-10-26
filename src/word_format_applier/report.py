@@ -8,11 +8,26 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
+import time
 from typing import Any, Dict, List, Optional
 
 from . import schema as ruleschema
 
 REPORT_VERSION = 1
+
+
+def default_report_path(output_docx: str) -> str:
+    """默认报告落点：系统临时目录下的 ``taofu-reports/``。
+
+    绝不写进 exe 同级目录（Program Files 下会被拒绝，且为了写报告去要管理员
+    权限会破坏 Windows 拖拽）。GUI 处理成功后会再把报告移到输出文件旁边。
+    """
+    folder = os.path.join(tempfile.gettempdir(), "taofu-reports")
+    stem = os.path.splitext(os.path.basename(output_docx))[0] or "report"
+    name = "%s-%d-%s.report.json" % (stem, os.getpid(),
+                                     time.strftime("%Y%m%d-%H%M%S"))
+    return os.path.join(folder, name)
 
 
 def build_report(*, ok: bool,
@@ -129,6 +144,11 @@ def short_summary(report: Dict[str, Any]) -> Dict[str, Any]:
             "ladder": structure.get("ladder"),
         } if structure.get("enabled") else None),
         "warnings": list(report.get("warnings") or []),
+        # 失败时必须把根因带给界面：以前这里只给 ok=false，Applier 把异常收进
+        # report["errors"] 却没人读，界面只能显示「处理失败（退出码 1）」。
+        "errors": list(report.get("errors") or []),
+        "error": (list(report.get("errors") or [None]) or [None])[0],
+        "report_error": report.get("report_error") or "",
         "partial": bool(report.get("partial")),
     }
 

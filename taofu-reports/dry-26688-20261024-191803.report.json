@@ -1,0 +1,360 @@
+{
+  "report_version": 1,
+  "plugin": "word-format-applier",
+  "ok": true,
+  "partial": false,
+  "dry_run": true,
+  "target_docx": "E:\\dsh_plugins\\word-format-applier\\wfa-safety-u4dhum5x\\target.docx",
+  "output_docx": null,
+  "report_json": "E:\\dsh_plugins\\word-format-applier\\taofu-reports\\dry-26688-20261024-191803.report.json",
+  "source": {
+    "kind": "text",
+    "resolved_path": null,
+    "used_preset": null,
+    "preset_file": null,
+    "preset_sha256": null,
+    "sha256": null,
+    "cache_hit": false,
+    "rule_cache_hit": false,
+    "parsed_by": "text_rules",
+    "rule_count": 3
+  },
+  "rules": {
+    "version": 3,
+    "page": {},
+    "default_font": {},
+    "roles": [
+      "normal"
+    ],
+    "role_attributes": {
+      "normal": [
+        "font_ascii",
+        "font_eastasia",
+        "size_pt"
+      ]
+    },
+    "cleanup_categories": [],
+    "structure_signals": []
+  },
+  "validation": {
+    "text_unchanged": true,
+    "text_sha256_before": "93715ca611cec8a003b67b28c383168975f88ba97ae4c060ab98a69b1f935f56",
+    "text_sha256_baseline": "93715ca611cec8a003b67b28c383168975f88ba97ae4c060ab98a69b1f935f56",
+    "text_sha256_after": "93715ca611cec8a003b67b28c383168975f88ba97ae4c060ab98a69b1f935f56",
+    "chars_before": 93,
+    "chars_baseline": 93,
+    "chars_after": 93,
+    "chars_removed_by_cleanup": 0,
+    "paragraphs_before": 10,
+    "paragraphs_baseline": 10,
+    "paragraphs_after": 10
+  },
+  "cleanup": {
+    "enabled": false,
+    "applied": false
+  },
+  "structure": {
+    "enabled": false,
+    "applied": false
+  },
+  "stats": {
+    "paragraphs_total": 10,
+    "paragraphs_changed": 10,
+    "paragraphs_skipped": 0,
+    "runs_changed": 10,
+    "properties_applied": 32,
+    "sections_updated": 0,
+    "role_counts": {
+      "title": 1,
+      "heading1": 1,
+      "normal": 3,
+      "quote": 1,
+      "table_text": 4
+    },
+    "applied_rules": [
+      {
+        "paragraph": 0,
+        "role": "title",
+        "changes": [
+          "first_line_indent=0.0字",
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 1,
+        "role": "heading1",
+        "changes": [
+          "first_line_indent=0.0字",
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 2,
+        "role": "normal",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 3,
+        "role": "normal",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 4,
+        "role": "quote",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 5,
+        "role": "normal",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 6,
+        "role": "table_text",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 7,
+        "role": "table_text",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 8,
+        "role": "table_text",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 9,
+        "role": "table_text",
+        "changes": [
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "size=12.0pt"
+        ]
+      }
+    ],
+    "skipped_rules": [],
+    "conflicts": [],
+    "unresolved": [],
+    "replaced_direct_formatting": [],
+    "role_sample": [
+      {
+        "i": 0,
+        "role": "title",
+        "reason": "style_name:Title",
+        "style": "Title",
+        "head": "季度工作报告"
+      },
+      {
+        "i": 1,
+        "role": "heading1",
+        "reason": "style_name:Heading 1",
+        "style": "Heading 1",
+        "head": "第一部分 概述"
+      },
+      {
+        "i": 2,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": "本季度整体运行平稳，各项指标均达到预期目"
+      },
+      {
+        "i": 3,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": "第二段正文用于验证行距与首行缩进是否被正"
+      },
+      {
+        "i": 4,
+        "role": "quote",
+        "reason": "style_name:Quote",
+        "style": "Quote",
+        "head": "引用：数据说明一切。"
+      },
+      {
+        "i": 5,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": "表格说明文字"
+      },
+      {
+        "i": 6,
+        "role": "table_text",
+        "reason": "in_table",
+        "style": "Normal",
+        "head": "指标"
+      },
+      {
+        "i": 7,
+        "role": "table_text",
+        "reason": "in_table",
+        "style": "Normal",
+        "head": "数值"
+      },
+      {
+        "i": 8,
+        "role": "table_text",
+        "reason": "in_table",
+        "style": "Normal",
+        "head": "营收"
+      },
+      {
+        "i": 9,
+        "role": "table_text",
+        "reason": "in_table",
+        "style": "Normal",
+        "head": "100"
+      }
+    ]
+  },
+  "applied_rules": [
+    {
+      "paragraph": 0,
+      "role": "title",
+      "changes": [
+        "first_line_indent=0.0字",
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 1,
+      "role": "heading1",
+      "changes": [
+        "first_line_indent=0.0字",
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 2,
+      "role": "normal",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 3,
+      "role": "normal",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 4,
+      "role": "quote",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 5,
+      "role": "normal",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 6,
+      "role": "table_text",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 7,
+      "role": "table_text",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 8,
+      "role": "table_text",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 9,
+      "role": "table_text",
+      "changes": [
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "size=12.0pt"
+      ]
+    }
+  ],
+  "skipped_rules": [],
+  "conflicts": [],
+  "unresolved": [],
+  "llm": {
+    "calls": 0,
+    "used": false,
+    "reason": "disabled",
+    "cache_hit": false,
+    "budget": {
+      "calls": 0,
+      "max_calls": 2,
+      "estimated_tokens": 0,
+      "soft_token_budget": 30000,
+      "exhausted_reason": null
+    }
+  },
+  "warnings": [],
+  "errors": [],
+  "timings_ms": {
+    "total_ms": 20
+  }
+}

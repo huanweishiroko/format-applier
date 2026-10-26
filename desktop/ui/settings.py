@@ -84,7 +84,12 @@ class SettingsPage(ctk.CTkFrame):
         ctk.CTkLabel(head, text="设置", font=th.font(22, "bold"), anchor="w").grid(
             row=0, column=0, sticky="w"
         )
-        th.hint(head, f"改动即时生效，并写入 {cfg.display_path(cfg.active_config_path())}").grid(
+        active_cfg = cfg.active_config_path()
+        cfg_label = cfg.config_location_label(active_cfg)
+        cfg_note = f"改动即时生效，并写入{cfg_label}"
+        if active_cfg != cfg.CONFIG_PATH:
+            cfg_note += "（主位置不可写，已自动改存）"
+        th.hint(head, f"{cfg_note}：{cfg.display_path(active_cfg)}").grid(
             row=1, column=0, sticky="w", pady=(2, 0)
         )
 
@@ -424,27 +429,30 @@ class SettingsPage(ctk.CTkFrame):
 
         self.app.set_api_config(values["api_base_url"], values["api_key"],
                                 values["api_model"])
-        if not self.app.save_settings():
-            # 真实原因（WinError / errno / 路径）由 app.save_settings 记下，原样展示，
-            # 不再只说一句“不可写”。同时内存里的三项已经生效，本次测试照样能用。
+        if not self.app.save_settings(notify=False):
+            # 真实原因（WinError / errno / 路径）由 app.save_settings 记下，原样展示。
+            # 弹窗由这里统一出（notify=False），避免和 app.save_settings 弹两次。
             error = getattr(self.app, "last_save_error", "") or "原因未知"
             target = getattr(self.app, "last_save_path", cfg.CONFIG_PATH)
             where = cfg.display_path(target)
             self.api_state.configure(text=f"未写入 {where}")
             self.app.log(f"API 配置保存失败：{error}")
             if announce:
-                self.app.status("API 配置保存失败：写入被拒绝")
+                self.app.status("API 配置保存失败：所有配置目录均不可写")
                 dlg.error(
                     self.app,
-                    f"保存失败：写不进 {where}",
+                    cfg.CONFIG_UNWRITABLE_MESSAGE,
+                    title="配置无法保存",
                     detail=(
-                        f"{error}\n\n"
+                        f"已尝试的位置：\n{error}\n\n"
                         "排查顺序：\n"
                         f"1) 打开 {where} 所在文件夹，右键 → 属性，取消「只读」；\n"
                         "2) 检查杀毒软件（火绒 / 360 等）是否拦截了本程序写文件，"
                         "把它加入信任区；\n"
-                        "3) 仍不行就用「以管理员身份运行」再试。\n\n"
-                        "注意：刚填的三项已经留在内存里，现在点「测试 API 连接」"
+                        "3) 仍不行就把软件整个文件夹移到 D 盘等非系统目录再试。\n\n"
+                        "注意：本软件不需要管理员权限；用管理员身份运行反而会让"
+                        "Windows 拖拽失效。\n\n"
+                        "刚填的三项已经留在内存里，现在点「测试 API 连接」"
                         "可以正常用；只是重启软件后需要重填一次。"
                     ),
                 )
@@ -452,12 +460,13 @@ class SettingsPage(ctk.CTkFrame):
 
         saved_to = getattr(self.app, "last_save_path", cfg.CONFIG_PATH)
         if saved_to != cfg.CONFIG_PATH:
-            # 主落点被锁，配置自动改存到了别的落点：如实告诉用户存哪了。
+            # 主落点被锁，配置自动改存到了别的落点：用友好叫法告诉用户存哪了。
+            label = cfg.config_location_label(saved_to)
             self.api_state.configure(
-                text=f"已保存到 {cfg.display_path(saved_to)}（主位置不可写，已自动改存）")
+                text=f"已存至{label}（主位置不可写，已自动改存）")
             if announce:
-                self.app.status("API 配置已保存（改存到备用位置）")
-            self.app.log(f"API 配置已保存到备用位置：{cfg.display_path(saved_to)}")
+                self.app.status(f"已存至{label}（主位置不可写，已自动改存）")
+            self.app.log(f"API 配置已保存到{label}：{cfg.display_path(saved_to)}")
             return "ok"
 
         self.api_state.configure(text="已保存 · 来源：设置页保存的配置")
@@ -599,10 +608,16 @@ class SettingsPage(ctk.CTkFrame):
             return
 
         saved = self._save_api(announce=False)
-        saved_to = cfg.display_path(getattr(self.app, "last_save_path", cfg.CONFIG_PATH))
+        last_path = getattr(self.app, "last_save_path", cfg.CONFIG_PATH)
+        saved_to = cfg.display_path(last_path)
         if saved == "ok":
             lines.append("")
-            lines.append(f"三项已写入 {saved_to}。")
+            if last_path != cfg.CONFIG_PATH:
+                lines.append(
+                    f"三项已写入{cfg.config_location_label(last_path)}：{saved_to}")
+                lines.append("  （主位置不可写，配置已自动改存，下次启动仍会读到）")
+            else:
+                lines.append(f"三项已写入 {saved_to}。")
         else:
             reason = getattr(self.app, "last_save_error", "") or "原因未知"
             lines.append("")

@@ -24,12 +24,44 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 DESKTOP = Path(__file__).resolve().parents[1]
 if str(DESKTOP) not in sys.path:
     sys.path.insert(0, str(DESKTOP))
 
 from core import config as cfg  # noqa: E402
+
+
+class WritableDataDirTest(unittest.TestCase):
+    """配置目录降级：A %APPDATA% → B %LOCALAPPDATA% → C ~/.taofu → D %TEMP%。"""
+
+    def test_candidates_never_point_into_program_dir(self):
+        for root in cfg.user_data_candidates():
+            self.assertNotEqual(root.name.lower(), "data",
+                                f"不能再退到 exe 同级 data/：{root}")
+        for path in cfg.config_candidates():
+            self.assertNotEqual(path.parent.name.lower(), "data",
+                                f"config.json 不能写 exe 同级 data/：{path}")
+
+    def test_pick_writable_skips_blocked_and_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            blocked = Path(tmp) / "blocked"
+            blocked.write_text("x", encoding="utf-8")   # 文件冒充目录 → 必然不可写
+            good = Path(tmp) / "good"
+            self.assertEqual(cfg.pick_writable_data_dir((blocked, good)), good)
+            self.assertIsNone(cfg.pick_writable_data_dir((blocked,)))
+
+    def test_usage_follows_same_directories_as_config(self):
+        self.assertEqual([p.parent for p in cfg.usage_candidates()],
+                         [p.parent for p in cfg.config_candidates()])
+
+    def test_labels_follow_paths_when_appdata_missing(self):
+        with mock.patch.dict(os.environ, {"APPDATA": ""}, clear=False):
+            entries = cfg._labelled_user_data_dirs()
+        self.assertTrue(entries)
+        self.assertEqual(entries[0][1], "本机备份位置",
+                         "APPDATA 缺失时不能把 LOCALAPPDATA 叫成用户配置目录")
 
 
 class ConfigSaveTest(unittest.TestCase):

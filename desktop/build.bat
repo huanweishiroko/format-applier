@@ -79,7 +79,9 @@ echo [4/4] Done
 echo.
 echo Next steps:
 echo   1^) Double-click the exe printed above.
-echo   2^) User data - config.json / presets / usage.json - sits under %%APPDATA%%\Taofu\
+echo   2^) User data - config.json / presets / usage.json - goes to %%APPDATA%%\Taofu\,
+echo      falling back to %%LOCALAPPDATA%%\Taofu, ~\.taofu, then %%TEMP%%\taofu.
+echo      It never writes next to the exe and never needs administrator rights.
 echo   3^) AI parsing needs an API key: fill it in Settings - API settings - Save.
 echo   4^) To override built-in presets, drop a presets\ folder next to the exe.
 echo.

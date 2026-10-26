@@ -15,7 +15,8 @@
   人类可读的日志走 stderr（``--json`` 时 CLI 不再往 stderr 打进度）。
 * 超时 120s（``subprocess.TimeoutExpired`` → BridgeError）。
 * 只读：本模块**不写** presets/ 下的任何文件；
-  报告（``*.report.json``）落在调用方指定的目录（缺省：输出文件旁边）。
+  报告（``*.report.json``）缺省落 ``%TEMP%\\taofu-reports\\``，
+  处理成功后由 GUI 移到输出文件旁边（exe 同级目录不再写任何用户文件）。
 * 永不抛裸异常给界面：所有失败统一包装成 :class:`BridgeError`，
   并保留 ``stdout`` / ``stderr`` / ``returncode`` 供日志区展示。
 """
@@ -25,8 +26,11 @@ from __future__ import annotations
 import json
 import locale
 import os
+import re
 import subprocess
 import sys
+import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -222,6 +226,77 @@ def _as_text(value: Any) -> str:
     return _decode_output(value)
 
 
+#: traceback 末尾异常行的样式：``PermissionError: [Errno 13] Permission denied: ...``
+_EXC_LINE = re.compile(
+    r"^([A-Za-z_][\w.]*(?:Error|Exception|Interrupt|Exit|Warning))\b(?::\s*(.*))?$"
+)
+
+
+def _stderr_error(stderr: str) -> str:
+    """从 stderr 里挑出最像“根因”的一行。
+
+    CLI 崩溃时 stdout 是空的，唯一有用的信息在 stderr 末尾，例如::
+
+        Traceback (most recent call last):
+          ...
+        PermissionError: [Errno 13] Permission denied: '...report.json'
+
+    优先顺序：CLI 约定的 ``error: ...`` → traceback 末尾的 ``XxxError: ...`` →
+    最后一行非空输出（比首行更接近根因）。没有可用的行就返回空串。
+    """
+    lines = [(line[6:] if line.startswith("[wfa]") else line).strip()
+             for line in (stderr or "").splitlines()]
+    lines = [line for line in lines if line]
+    if not lines:
+        return ""
+    for line in lines:
+        if line.startswith("error:"):
+            return line[6:].strip()
+    for line in reversed(lines):
+        match = _EXC_LINE.match(line)
+        if match:
+            name, message = match.group(1), (match.group(2) or "").strip()
+            return f"{name}: {message}" if message else name
+    return lines[-1]
+
+
+#: 判定 stderr 一行是否值得进错误详情（INFO/进度行不进来）
+_STDERR_KEEP = re.compile(
+    r"\[WARN\]|\[ERROR\]|Traceback|\berror\b|\bError\b|\bException\b|"
+    r"PermissionError|WinError|Errno|denied|failed|失败|错误|拒绝|警告",
+)
+
+
+def _stderr_digest(stderr: str, max_lines: int = 40) -> str:
+    """把 stderr 压成“可读的失败详情”：丢掉 INFO/进度，只留 ERROR/WARN 与异常栈。
+
+    界面弹窗直接把返回值贴给用户，所以既不能只给一行（看不到上下文），也不能
+    把几十行 ``[wfa] rules: 24`` 之类的进度噪音全塞进去。
+    """
+    kept: List[str] = []
+    for raw in (stderr or "").splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        if line.startswith("[wfa]"):
+            body = line[5:].strip()
+            if not _STDERR_KEEP.search(body):
+                continue          # 进度/INFO：日志区已经展示，不进错误详情
+            line = body
+        kept.append(line)
+    if len(kept) > max_lines:
+        kept = kept[-max_lines:]
+    return "\n".join(kept)
+
+
+def _summary_errors(summary: Dict[str, Any]) -> str:
+    """CLI 自己报的根因（``errors`` 数组 / ``error`` 字段）优先于 stderr。"""
+    items = [str(item).strip() for item in (summary.get("errors") or [])
+             if str(item).strip()]
+    return "\n".join(items[:8])
+
+
+
 def _parse_json(stdout: str, argv: Sequence[str]) -> Dict[str, Any]:
     """从 stdout 里取 JSON 对象：先整体解析，失败再退回"最后一个 {...}"。"""
     text = (stdout or "").strip()
@@ -404,6 +479,10 @@ def process(target: str, preset: str, output: str,
     args: List[str] = ["--target", str(target_path), "--preset",
                        _cli_preset_name(name, presets_dir),
                        "--output", str(out_path), "--json"]
+    if report_path is None:
+        # 报告先写到系统临时目录，绝不落到 exe 同级（Program Files 不可写）；
+        # 处理成功后 GUI 再把它移到输出文件旁边给用户看。
+        report_path = temp_report_path(str(out_path))
     if report_path:
         args.extend(["--report", str(report_path)])
     if dry_run:
@@ -413,17 +492,25 @@ def process(target: str, preset: str, output: str,
     argv = build_command(*args, presets_dir=presets_dir, no_cache=no_cache)
 
     code, out, err = _run(argv, timeout)
+    # CLI 崩溃（traceback）时 stdout 是空的，真正的报错只在 stderr 末尾。
+    # 先把它抽出来，避免界面只收到一句“没有输出任何内容”。
+    reason = _stderr_error(err)
+    digest = _stderr_digest(err)
     error = ""
     try:
         summary = _summary_or_error(out, argv)
     except BridgeError as exc:
         summary = {"ok": False}
-        error = str(exc)
-        if code == 0:
+        if code == 0 and not reason:
             raise
+        error = digest or str(exc)
     if not summary.get("ok") and not error:
-        error = (str(summary.get("error") or "").strip()
-                 or _first_error_line(err, out)
+        # 退出码非 0 时界面必须看到真实原因：CLI 的 errors → error → 过滤后的
+        # stderr（含 traceback）→ 最后才退回“退出码 N”。
+        error = (_summary_errors(summary)
+                 or str(summary.get("error") or "").strip()
+                 or digest
+                 or reason
                  or f"处理失败（退出码 {code}）")
     return ProcessResult(
         ok=bool(summary.get("ok")),
@@ -437,14 +524,8 @@ def process(target: str, preset: str, output: str,
 
 
 def _first_error_line(stderr: str, stdout: str) -> str:
-    for line in (stderr or "").splitlines():
-        line = line.strip()
-        if line.startswith("error:"):
-            return line[6:].strip()
-    for line in (stderr or "").splitlines():
-        if line.strip():
-            return line.strip()
-    return (stdout or "").strip()[:200]
+    """失败摘要：stderr 里的根因（含 traceback 末尾异常）优先，再退回 stdout。"""
+    return _stderr_error(stderr) or (stdout or "").strip()[:200]
 
 
 def _cli_preset_name(name: str, presets_dir: Optional[str]) -> str:
@@ -487,6 +568,15 @@ def describe_entry() -> str:
     return f"{mode} → {sys.executable}"
 
 
+def temp_report_path(output_docx: str) -> str:
+    """报告在系统临时目录里的落点：``%TEMP%\\taofu-reports\\<输出名>-<pid>-<时间>.report.json``。"""
+    folder = Path(tempfile.gettempdir()) / "taofu-reports"
+    stem = Path(output_docx).stem or "report"
+    name = "%s-%d-%s.report.json" % (stem, os.getpid(),
+                                     time.strftime("%Y%m%d-%H%M%S"))
+    return str(folder / name)
+
+
 def default_report_path(output_docx: str) -> str:
-    """CLI 缺省的报告路径规则：``<output>.report.json``。"""
-    return os.path.abspath(str(output_docx) + ".report.json")
+    """CLI 缺省的报告路径规则：系统临时目录（不再是输出文件旁边）。"""
+    return temp_report_path(str(output_docx))

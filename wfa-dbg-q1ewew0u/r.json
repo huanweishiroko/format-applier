@@ -1,0 +1,413 @@
+{
+  "report_version": 1,
+  "plugin": "word-format-applier",
+  "ok": true,
+  "partial": false,
+  "dry_run": false,
+  "target_docx": "E:\\dsh_plugins\\word-format-applier\\wfa-dbg-q1ewew0u\\markers.docx",
+  "output_docx": "E:\\dsh_plugins\\word-format-applier\\wfa-dbg-q1ewew0u\\out.docx",
+  "report_json": "E:\\dsh_plugins\\word-format-applier\\wfa-dbg-q1ewew0u\\r.json",
+  "source": {
+    "kind": "text",
+    "resolved_path": null,
+    "used_preset": null,
+    "preset_file": null,
+    "preset_sha256": null,
+    "sha256": null,
+    "cache_hit": false,
+    "rule_cache_hit": false,
+    "parsed_by": "text_rules",
+    "rule_count": 22
+  },
+  "rules": {
+    "version": 3,
+    "page": {},
+    "default_font": {},
+    "roles": [
+      "heading1",
+      "normal",
+      "title"
+    ],
+    "role_attributes": {
+      "heading1": [
+        "align",
+        "font_ascii",
+        "font_eastasia",
+        "size_pt"
+      ],
+      "normal": [
+        "align",
+        "first_line_indent_chars",
+        "font_ascii",
+        "font_eastasia",
+        "line_spacing",
+        "line_spacing_rule",
+        "size_pt"
+      ],
+      "title": [
+        "align",
+        "bold",
+        "font_ascii",
+        "font_eastasia",
+        "size_pt"
+      ]
+    },
+    "cleanup_categories": [
+      "markdown",
+      "invisible",
+      "punctuation",
+      "spaces",
+      "decorations",
+      "blank_lines"
+    ],
+    "structure_signals": []
+  },
+  "validation": {
+    "text_unchanged": true,
+    "text_sha256_before": "ff493b3354d54c30cdf664c09ea466c5f51c9fe3f508eff3f394d4e9c2315c89",
+    "text_sha256_baseline": "1c5469c0eeb067e8321bebbb98323272c2d2a1a218f4754f80d50be99e9b42ce",
+    "text_sha256_after": "1c5469c0eeb067e8321bebbb98323272c2d2a1a218f4754f80d50be99e9b42ce",
+    "chars_before": 71,
+    "chars_baseline": 35,
+    "chars_after": 35,
+    "chars_removed_by_cleanup": 36,
+    "paragraphs_before": 9,
+    "paragraphs_baseline": 7,
+    "paragraphs_after": 7
+  },
+  "cleanup": {
+    "enabled": true,
+    "applied": true,
+    "categories": [
+      "markdown",
+      "invisible",
+      "punctuation",
+      "spaces",
+      "decorations",
+      "blank_lines"
+    ],
+    "category_labels": [
+      "markdown residue",
+      "invisible characters",
+      "duplicated / orphan punctuation",
+      "whitespace normalisation",
+      "decorative / placeholder symbols",
+      "redundant blank paragraphs"
+    ],
+    "keep_symbols": "%‰°±",
+    "remove_symbols": "",
+    "preserve_numbering": false,
+    "paragraphs_scanned": 9,
+    "paragraphs_changed": 5,
+    "paragraphs_removed": 2,
+    "paragraphs_removed_markers": 0,
+    "paragraphs_removed_blank": 2,
+    "paragraphs_removed_blank_all": 0,
+    "heading_hints": 0,
+    "samples": [
+      {
+        "paragraph": 2,
+        "before": "---",
+        "after": ""
+      },
+      {
+        "paragraph": 3,
+        "before": "| 指标 | 数值 |",
+        "after": "指标 数值"
+      },
+      {
+        "paragraph": 4,
+        "before": "| --- | --- |",
+        "after": ""
+      },
+      {
+        "paragraph": 5,
+        "before": "```python",
+        "after": ""
+      },
+      {
+        "paragraph": 7,
+        "before": "```",
+        "after": ""
+      }
+    ],
+    "fragment_merge": {
+      "enabled": false
+    },
+    "unresolved": []
+  },
+  "structure": {
+    "enabled": false,
+    "applied": false
+  },
+  "stats": {
+    "paragraphs_total": 7,
+    "paragraphs_changed": 7,
+    "paragraphs_skipped": 0,
+    "runs_changed": 4,
+    "properties_applied": 39,
+    "spacing_forced": 7,
+    "sections_updated": 0,
+    "role_counts": {
+      "normal": 7
+    },
+    "applied_rules": [
+      {
+        "paragraph": 0,
+        "role": "normal",
+        "changes": [
+          "align=justify",
+          "first_line_indent=2.0字",
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "line_spacing=1.5x",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 1,
+        "role": "normal",
+        "changes": [
+          "align=justify",
+          "first_line_indent=2.0字",
+          "line_spacing=1.5x"
+        ]
+      },
+      {
+        "paragraph": 2,
+        "role": "normal",
+        "changes": [
+          "align=justify",
+          "first_line_indent=2.0字",
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "line_spacing=1.5x",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 3,
+        "role": "normal",
+        "changes": [
+          "align=justify",
+          "first_line_indent=2.0字",
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "line_spacing=1.5x",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 4,
+        "role": "normal",
+        "changes": [
+          "align=justify",
+          "first_line_indent=2.0字",
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "line_spacing=1.5x",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 5,
+        "role": "normal",
+        "changes": [
+          "align=justify",
+          "first_line_indent=2.0字",
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "line_spacing=1.5x",
+          "size=12.0pt"
+        ]
+      },
+      {
+        "paragraph": 6,
+        "role": "normal",
+        "changes": [
+          "align=justify",
+          "first_line_indent=2.0字",
+          "font_ascii=宋体",
+          "font_eastasia=宋体",
+          "line_spacing=1.5x",
+          "size=12.0pt"
+        ]
+      }
+    ],
+    "skipped_rules": [],
+    "conflicts": [],
+    "unresolved": [
+      {
+        "paragraph": 1,
+        "role": "normal",
+        "reason": "paragraph has no runs (text may be in a field)",
+        "text_head": ""
+      }
+    ],
+    "replaced_direct_formatting": [],
+    "role_sample": [
+      {
+        "i": 0,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": "报告标题"
+      },
+      {
+        "i": 1,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": ""
+      },
+      {
+        "i": 2,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": "指标 数值"
+      },
+      {
+        "i": 3,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": ""
+      },
+      {
+        "i": 4,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": "print('a *b* c')"
+      },
+      {
+        "i": 5,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": ""
+      },
+      {
+        "i": 6,
+        "role": "normal",
+        "reason": "style_name:Normal",
+        "style": "Normal",
+        "head": "说明文字"
+      }
+    ]
+  },
+  "applied_rules": [
+    {
+      "paragraph": 0,
+      "role": "normal",
+      "changes": [
+        "align=justify",
+        "first_line_indent=2.0字",
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "line_spacing=1.5x",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 1,
+      "role": "normal",
+      "changes": [
+        "align=justify",
+        "first_line_indent=2.0字",
+        "line_spacing=1.5x"
+      ]
+    },
+    {
+      "paragraph": 2,
+      "role": "normal",
+      "changes": [
+        "align=justify",
+        "first_line_indent=2.0字",
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "line_spacing=1.5x",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 3,
+      "role": "normal",
+      "changes": [
+        "align=justify",
+        "first_line_indent=2.0字",
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "line_spacing=1.5x",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 4,
+      "role": "normal",
+      "changes": [
+        "align=justify",
+        "first_line_indent=2.0字",
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "line_spacing=1.5x",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 5,
+      "role": "normal",
+      "changes": [
+        "align=justify",
+        "first_line_indent=2.0字",
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "line_spacing=1.5x",
+        "size=12.0pt"
+      ]
+    },
+    {
+      "paragraph": 6,
+      "role": "normal",
+      "changes": [
+        "align=justify",
+        "first_line_indent=2.0字",
+        "font_ascii=宋体",
+        "font_eastasia=宋体",
+        "line_spacing=1.5x",
+        "size=12.0pt"
+      ]
+    }
+  ],
+  "skipped_rules": [],
+  "conflicts": [],
+  "unresolved": [
+    {
+      "paragraph": 1,
+      "role": "normal",
+      "reason": "paragraph has no runs (text may be in a field)",
+      "text_head": ""
+    }
+  ],
+  "llm": {
+    "calls": 0,
+    "used": false,
+    "reason": "disabled",
+    "cache_hit": false,
+    "budget": {
+      "calls": 0,
+      "max_calls": 2,
+      "estimated_tokens": 0,
+      "soft_token_budget": 30000,
+      "exhausted_reason": null
+    }
+  },
+  "warnings": [
+    "1 attribute(s) could not be applied"
+  ],
+  "errors": [],
+  "timings_ms": {
+    "total_ms": 28
+  }
+}

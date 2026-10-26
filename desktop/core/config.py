@@ -12,7 +12,9 @@
 路径布局（Phase 5 起）
 --------------------
 ============================  ==================================================
-``config.json``               ``%APPDATA%\\Taofu\\config.json``（含 API 配置三项）
+``config.json``               ``%APPDATA%\\Taofu\\config.json``；写不进时依次退到
+                              ``%LOCALAPPDATA%\\Taofu`` → ``~/.taofu`` → ``%TEMP%\\taofu``
+                              （**绝不写 exe 同级 data/**，也不需要管理员权限）
 ``.env``                      **exe 同级**（开发期 = ``desktop\\.env``）；
                               老用户兼容，新用户不需要；旧版 ``_internal\\.env``
                               仍可被读到（兼容，不报错）
@@ -34,6 +36,8 @@ import os
 import shutil
 import stat
 import sys
+import tempfile
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -154,13 +158,130 @@ ENV_EXAMPLE_PATH: Path = APP_DIR / ".env.example"
 # --------------------------------------------------------------------------- #
 
 
-def user_data_dir(create: bool = False) -> Path:
-    """用户数据根目录；``%APPDATA%`` 缺失（罕见）时降级到 ``~/.taofu``。
+#: 所有配置目录都写不进时给用户的提示（界面统一引用这一句）
+CONFIG_UNWRITABLE_MESSAGE = (
+    "配置文件无法保存，请检查文件夹权限或将软件移动到 D 盘等非系统目录。"
+)
 
-    config.json、presets\\、usage.json 三者都挂在这个根下面，保持一致。
+_USER_DATA_DIR: Optional[Path] = None
+_USER_DATA_DIR_READY = False
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    """两个路径是否指向同一位置（Windows 大小写不敏感）。"""
+    try:
+        return os.path.normcase(os.path.abspath(str(left))) == \
+            os.path.normcase(os.path.abspath(str(right)))
+    except (OSError, ValueError):
+        return left == right
+
+
+def _labelled_user_data_dirs() -> List[Tuple[Path, str, str]]:
+    """返回 ``[(根目录, 友好叫法, 短写法)]``，按 A → D 排列。
+
+    标签跟着路径一起生成，避免某个环境变量缺失时 zip 错位、把
+    ``%LOCALAPPDATA%`` 显示成 ``用户配置目录``。
     """
+    out: List[Tuple[Path, str, str]] = []
+
+    def add(path: Optional[Path], label: str, token: str) -> None:
+        if path is not None and not any(_same_path(path, item[0]) for item in out):
+            out.append((path, label, token))
+
     appdata = (os.environ.get("APPDATA") or "").strip()
-    base = Path(appdata) / "Taofu" if appdata else Path.home() / ".taofu"
+    if appdata:
+        add(Path(appdata) / "Taofu", "用户配置目录", "%APPDATA%\\Taofu")
+    local = (os.environ.get("LOCALAPPDATA") or "").strip()
+    if local:
+        add(Path(local) / "Taofu", "本机备份位置", "%LOCALAPPDATA%\\Taofu")
+    try:
+        home = os.path.expanduser("~")
+        if home and home != "~" and os.path.isabs(home):
+            add(Path(home) / ".taofu", "用户个人目录", "%USERPROFILE%\\.taofu")
+    except (OSError, RuntimeError):      # 极端环境：家目录都解析不出来
+        pass
+    try:
+        add(Path(tempfile.gettempdir()) / "taofu", "临时目录", "%TEMP%\\taofu")
+    except (OSError, RuntimeError):
+        pass
+    return out
+
+
+def user_data_candidates() -> Tuple[Path, ...]:
+    """用户数据根目录候选，按优先级排列（A → D）。
+
+    A. ``%APPDATA%\\Taofu``        —— 首选，跟随漫游配置
+    B. ``%LOCALAPPDATA%\\Taofu``   —— AppData\\Local，A 被锁死时用
+    C. ``~/.taofu``                —— 用户个人目录
+    D. ``%TEMP%\\taofu``           —— 系统临时目录，最后兜底
+
+    **绝不包含 exe 同级 ``data/``**：装在 Program Files 时那里同样写不进，
+    而且为了写配置去要管理员权限会破坏 Windows 拖拽（UIPI）。
+    """
+    return tuple(item[0] for item in _labelled_user_data_dirs())
+
+
+def _dir_writable(path: Path) -> bool:
+    """真的往目录里写一个临时文件来判断可写（只看权限位不够）。
+
+    刻意不用 ``tempfile.mkstemp``：Windows 上目录 ACL 拒绝创建时，mkstemp 会
+    把 PermissionError 当成“重名”并利用 ``os.access``（只看只读属性）继续重试，
+    最多 1 万次，启动直接卡几十秒。这里用唯一文件名 + ``open(..., "x")``，
+    拒绝就是拒绝，立刻返回。
+    """
+    probe: Optional[Path] = None
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / f".taofu-write-{os.getpid()}-{time.time_ns()}.tmp"
+        with open(probe, "x", encoding="utf-8"):
+            pass
+        return True
+    except OSError:
+        return False
+    finally:
+        if probe is not None:
+            try:
+                probe.unlink()
+            except OSError:
+                pass
+
+
+def pick_writable_data_dir(
+        candidates: Optional[Tuple[Path, ...]] = None) -> Optional[Path]:
+    """按顺序返回第一个真正可写的数据目录；全都写不进返回 ``None``。
+
+    ``candidates`` 仅供测试注入；正常调用走 :func:`user_data_candidates`。
+    """
+    for candidate in (candidates if candidates is not None
+                      else user_data_candidates()):
+        if _dir_writable(candidate):
+            return candidate
+    return None
+
+
+def reset_user_data_cache() -> None:
+    """清掉导入时算出的数据目录（测试改环境变量后调用）。"""
+    global _USER_DATA_DIR, _USER_DATA_DIR_READY
+    _USER_DATA_DIR = None
+    _USER_DATA_DIR_READY = False
+
+
+def user_data_dir(create: bool = False) -> Path:
+    """当前**可写**的用户数据根目录；全不可写时退回首选位置。
+
+    退回首选位置是为了让后续写盘报出真实的 PermissionError（界面再弹提示），
+    而不是把配置悄悄塞进 exe 同级目录。config.json、usage.json、presets/
+    都挂在这个根下面，保持一致。
+    """
+    global _USER_DATA_DIR, _USER_DATA_DIR_READY
+    if not _USER_DATA_DIR_READY:
+        chosen = pick_writable_data_dir()
+        if chosen is None:
+            candidates = user_data_candidates()
+            chosen = candidates[0] if candidates else Path.home() / ".taofu"
+        _USER_DATA_DIR = chosen
+        _USER_DATA_DIR_READY = True
+    base = _USER_DATA_DIR or Path.home() / ".taofu"
     if create:
         try:
             base.mkdir(parents=True, exist_ok=True)
@@ -173,7 +294,7 @@ def display_path(path: "str | Path") -> str:
     """把本机绝对路径换成用户看得懂的短写法。
 
     界面/日志里不该出现一长串夹带用户名的 AppData 绝对路径，
-    统一显示成 ``%APPDATA%\\Taofu\\config.json``；
+    统一显示成 ``%APPDATA%\\Taofu\\config.json`` 等写法；
     家目录下的路径显示成 ``%USERPROFILE%\\...``；其它路径原样返回。
     """
     raw = str(path or "")
@@ -181,20 +302,23 @@ def display_path(path: "str | Path") -> str:
         return ""
     try:
         target = Path(raw)
-        for base, token in ((user_data_dir(), "%APPDATA%\\Taofu"),
-                            (Path.home(), "%USERPROFILE%")):
+        for base, _label, token in _labelled_user_data_dirs():
             try:
                 rel = target.relative_to(base)
             except ValueError:
                 continue
             return token + ("\\" + str(rel) if str(rel) not in ("", ".") else "")
+        try:
+            rel = target.relative_to(Path.home())
+        except ValueError:
+            return raw
+        return "%USERPROFILE%" + ("\\" + str(rel) if str(rel) not in ("", ".") else "")
     except (OSError, ValueError):
-        pass
-    return raw
+        return raw
 
 
 def config_path() -> Path:
-    """config.json 路径（``%APPDATA%\\Taofu\\config.json``）。"""
+    """config.json 路径（当前可写数据目录下的 ``config.json``）。"""
     return user_data_dir() / "config.json"
 
 
@@ -202,27 +326,32 @@ def config_path() -> Path:
 CONFIG_PATH: Path = config_path()
 
 
-def config_candidates() -> Tuple[Path, ...]:
-    """config.json 的候选落点，按优先级排列。
+def _ordered_roots() -> Tuple[Path, ...]:
+    """数据目录顺序：可写的那个排最前，其余按 A → D 兜底。
 
-    1. ``%APPDATA%\\Taofu\\config.json`` —— 正常情况只用这一个；
-    2. ``%LOCALAPPDATA%\\Taofu\\config.json`` —— 主落点被锁死（杀软拦截、权限、
-       文件被占用）时的退路，仍在用户目录里，不进程序目录；
-    3. ``<exe 同级>\\data\\config.json`` —— 绿色便携场景（仅 frozen，且前两处都写不进）。
-
-    写入按顺序退让；读取由 ``active_config_path()`` 挑最新的一份。
+    写入时先试真正可写的那一个，避免每次都先撞一遍已知不可写的目录；
+    读取时仍会把所有候选都看一遍（``active_config_path`` 取最新）。
     """
-    out: List[Path] = [CONFIG_PATH]
-    local = (os.environ.get("LOCALAPPDATA") or "").strip()
-    if local:
-        candidate = Path(local) / "Taofu" / "config.json"
-        if candidate != CONFIG_PATH:
-            out.append(candidate)
-    if frozen():
-        candidate = APP_DIR / "data" / "config.json"
-        if candidate not in out:
-            out.append(candidate)
-    return tuple(out)
+    chosen = user_data_dir()
+    roots = user_data_candidates()
+    if not roots:
+        return (chosen,)
+    ordered: List[Path] = [chosen]
+    ordered.extend(root for root in roots if not _same_path(root, chosen))
+    return tuple(ordered)
+
+
+def _file_candidates(name: str) -> Tuple[Path, ...]:
+    return tuple(root / name for root in _ordered_roots())
+
+
+def config_candidates() -> Tuple[Path, ...]:
+    """config.json 的候选落点：可写目录排最前，其余按 A → D 兜底。
+
+    **不再退到 exe 同级 ``data/``**。写入按顺序退让；
+    读取由 ``active_config_path()`` 挑最新的一份。
+    """
+    return _file_candidates("config.json")
 
 
 def active_config_path() -> Path:
@@ -245,10 +374,32 @@ def active_config_path() -> Path:
             best, best_mtime = candidate, mtime
     return best if best is not None else CONFIG_PATH
 
-#: 旧版 config.json 落点（Phase 4 打包后在 _internal\\，仅在内存里读旧值用）
-LEGACY_CONFIG_CANDIDATES: Tuple[Path, ...] = (
-    (_internal_dir() / "config.json",) if _internal_dir() is not None else ()
-)
+
+def config_location_label(path: Optional[Path] = None) -> str:
+    """配置落点的**友好叫法**（状态栏展示用，避免甩用户一长串路径）。
+
+    与 :func:`user_data_candidates` 的 A → D 一一对应：
+    ``用户配置目录`` / ``本机备份位置`` / ``用户个人目录`` / ``临时目录``。
+    """
+    target = Path(path) if path is not None else active_config_path()
+    try:
+        resolved = target.resolve()
+    except OSError:  # pragma: no cover - 路径都解析不了时退回默认叫法
+        return "备用位置"
+    for root, label, _token in _labelled_user_data_dirs():
+        try:
+            resolved.relative_to(root.resolve())
+            return label
+        except (OSError, ValueError):
+            continue
+    return "备用位置"
+
+#: 旧版 config.json 落点（只读兼容，**绝不往这里写**）：
+#: Phase 4 打包在 ``_internal\\``；v2.x 早期版本曾退到 exe 同级 ``data\\``。
+_LEGACY_CONFIG_PATHS: List[Path] = [APP_DIR / "data" / "config.json"]
+if _internal_dir() is not None:
+    _LEGACY_CONFIG_PATHS.append(_internal_dir() / "config.json")
+LEGACY_CONFIG_CANDIDATES: Tuple[Path, ...] = tuple(_LEGACY_CONFIG_PATHS)
 
 
 #: 旧版用户数据目录名（v1.x 用的）；只在 migrate_legacy_data() 里出现
@@ -785,9 +936,30 @@ def api_source_label(path: Optional[Path] = None) -> str:
 # --------------------------------------------------------------------------- #
 
 
+def usage_candidates() -> Tuple[Path, ...]:
+    """usage.json 候选落点：与 config.json 同一套 A → D 目录。"""
+    return _file_candidates("usage.json")
+
+
 def usage_path() -> Path:
-    """usage.json 路径；APPDATA 缺失时降级到 ~/.taofu/。"""
+    """usage.json 路径（当前可写数据目录下；不再只认 APPDATA）。"""
     return user_data_dir() / "usage.json"
+
+
+def active_usage_path() -> Path:
+    """实际生效的 usage.json：候选里存在的最新一份；都不存在返回首选。"""
+    best: Optional[Path] = None
+    best_mtime = -1.0
+    for candidate in usage_candidates():
+        try:
+            if not candidate.is_file():
+                continue
+            mtime = candidate.stat().st_mtime
+        except OSError:
+            continue
+        if mtime > best_mtime:
+            best, best_mtime = candidate, mtime
+    return best if best is not None else usage_path()
 
 
 def empty_usage() -> Dict[str, Any]:
@@ -804,7 +976,7 @@ def empty_usage() -> Dict[str, Any]:
 
 def load_usage(path: Optional[Path] = None) -> Dict[str, Any]:
     """读 usage.json；缺失/损坏时返回全 0 结构，绝不抛异常。"""
-    target = Path(path) if path else usage_path()
+    target = Path(path) if path else active_usage_path()
     data = empty_usage()
     try:
         if target.is_file():
@@ -832,7 +1004,7 @@ def record_usage(prompt_tokens: int = 0, completion_tokens: int = 0,
 
     写盘失败（目录不可写等）只影响统计，不影响调用方，返回的还是内存里的新值。
     """
-    target = Path(path) if path else usage_path()
+    target = Path(path) if path else active_usage_path()
     data = load_usage(target)
     prompt = max(int(prompt_tokens or 0), 0)
     completion = max(int(completion_tokens or 0), 0)
@@ -859,27 +1031,29 @@ def record_usage(prompt_tokens: int = 0, completion_tokens: int = 0,
         bucket["last_kind"] = kind
     bucket["last_at"] = stamp
 
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
-    except OSError:
-        pass
+    text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    targets = (target,) if path is not None else _file_candidates("usage.json")
+    for candidate in targets:
+        try:
+            _write_config_file(candidate, text)
+            break
+        except OSError:                 # 统计写不进不影响主流程，静默换下一个候选
+            continue
     return data
 
 
 def reset_usage(path: Optional[Path] = None) -> Dict[str, Any]:
-    """清零统计（设置页「清零」按钮用）。"""
-    target = Path(path) if path else usage_path()
+    """清零统计（设置页「清零」按钮用）；写盘失败静默换下一个候选。"""
     data = empty_usage()
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
-    except OSError:
-        pass
+    text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    targets = ((Path(path),) if path is not None
+               else _file_candidates("usage.json"))
+    for candidate in targets:
+        try:
+            _write_config_file(candidate, text)
+            break
+        except OSError:
+            continue
     return data
 
 

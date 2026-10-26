@@ -87,6 +87,73 @@ _FALSE_WORDS = {"false", "no", "off", "0", "否", "无", "不", "关", "关闭",
 #: a heading never ends like a sentence ("要求如下：" is a label, so ``：`` is allowed)
 _SENTENCE_TAIL = ("。", "！", "？", "；", "，", "、", ".", "!", "?", ";", ",")
 
+#: a *fragment* of a paragraph starts with closing punctuation (the tail of a
+#: sentence that got split) and therefore can never be a heading. Opening
+#: brackets are deliberately absent: "（一）总体要求" is a real heading.
+_FRAGMENT_LEAD = set("。，、；：！？,.;:!?）)]】》”’")
+#: the same idea for the tail, but ``：`` is allowed because "实验目的：" is a
+#: legitimate label line (the label_line heuristic keys off it).
+_FRAGMENT_TAIL = set("。，、；！？,.;!?）)]】》”’")
+#: characters that can make up a pure formula/number token.
+_FORMULA_CHARS_RE = re.compile(
+    r"^[A-Za-z0-9=+\-−×÷*/^_().,;:!?\[\]{}<>≤≥≠%％°'\"\s（）【】、，。；：]+$")
+_FORMULA_OPERATOR_RE = re.compile(r"[0-9=+\-−×÷*/^<>≤≥≠]")
+
+
+def looks_like_formula_fragment(text: str) -> bool:
+    """True for a *strictly* formula/number token (no CJK, no prose).
+
+    This is the merge-side counterpart of :func:`looks_like_fragment_text`:
+    the latter is a one-way heading guard (any sentence tail returns True), while
+    this one must distinguish "C", "=", "O(n", "1024×1024" from a real sentence
+    that merely starts with punctuation.
+    """
+    value = (text or "").strip()
+    if not value or re.search(r"[\u3400-\u9fff]", value):
+        return False
+    compact = re.sub(r"\s+", "", value)
+    if not compact or len(compact) > 12 or not _FORMULA_CHARS_RE.match(compact):
+        return False
+    if _FORMULA_OPERATOR_RE.search(compact):
+        return True
+    return len(compact) <= 3
+
+
+def looks_like_fragment_text(text: str) -> bool:
+    """True for sentence tails and pure formula tokens - never a heading.
+
+    A PDF/equation round-trip often leaves one sentence spread over many
+    paragraphs. The pieces look like "C", "=", "×", ")", "n" or start with the
+    punctuation that ended the previous piece. Giving any of them a heading
+    style is always wrong, so every heuristic (numbering/bold/label-line) must
+    consult this guard first.
+    """
+    value = (text or "").strip()
+    if not value:
+        return False
+    if value[0] in _FRAGMENT_LEAD:
+        return True
+    if value[-1] in _FRAGMENT_TAIL:
+        return True
+    # "(n3)O(n3)。本实验..." is a formula run that happens to carry a CJK tail;
+    # "(1) 概述" (space after the bracket) is still a possible heading.
+    if value[0] in "([{（【":
+        if not re.search(r"[\u3400-\u9fff]", value):
+            return True
+        head = re.split(r"[\u3400-\u9fff]", value, maxsplit=1)[0]
+        if head and not re.search(r"\s", head) and _FORMULA_OPERATOR_RE.search(head):
+            return True
+    if re.search(r"[\u3400-\u9fff]", value):
+        return False
+    compact = re.sub(r"\s+", "", value)
+    if not compact or not _FORMULA_CHARS_RE.match(compact):
+        return False
+    # A single Latin word ("Introduction", "Abstract") is a possible heading;
+    # digits/operators or a very short token are formula fragments.
+    if _FORMULA_OPERATOR_RE.search(compact):
+        return True
+    return len(compact) <= 3
+
 #: ``(kind, pattern, official_level, decimal_level)``; first match wins.
 #:
 #: The dotted patterns demand whitespace before the text so that prose such as
@@ -235,6 +302,8 @@ def numbering_match(text: str, *, compact: bool = False) -> Optional[Tuple[int, 
 def _text_looks_like_heading(text: str) -> bool:
     stripped = (text or "").strip()
     if not stripped or len(stripped) > MAX_HEADING_CHARS:
+        return False
+    if looks_like_fragment_text(stripped):
         return False
     return not stripped.endswith(_SENTENCE_TAIL)
 

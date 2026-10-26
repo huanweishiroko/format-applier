@@ -22,6 +22,8 @@ for path in (SRC, ROOT):
         sys.path.insert(0, path)
 
 import docx  # noqa: E402
+from docx.enum.text import WD_BREAK  # noqa: E402
+from docx.oxml.ns import qn  # noqa: E402
 from docx.shared import Pt  # noqa: E402
 
 from word_format_applier import applier, cleanup, parser, textparse  # noqa: E402
@@ -158,7 +160,7 @@ class TestCleanupDirectives(unittest.TestCase):
 
     def test_directive_is_not_read_as_a_font_clause(self):
         rules = textparse.parse_text_rules(
-            "清理：markdown 不可见字符 重复标点 空白 装饰符号 空段落 删除空段落\n"
+            "清理：markdown 不可见字符 重复标点 空白 装饰符号 碎片 空段落 删除空段落\n"
             "保留符号：% ‰ ° ±\n"
             "标题：黑体 三号 居中 加粗\n"
             "正文：宋体 小四 1.5倍行距 首行缩进2字符 两端对齐\n")
@@ -332,6 +334,158 @@ class TestCleanupEndToEnd(unittest.TestCase):
         again = parser.parse_format_source("preset:清理预设", presets_dir=self.presets)
         self.assertTrue(again["cache_hit"])
         self.assertEqual(parsed["rules"]["cleanup"], again["rules"]["cleanup"])
+
+
+class TestSoftReturnParagraphs(unittest.TestCase):
+    """Shift+Enter leaves <w:br/>; a paragraph holding only that is still blank."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="wfa-br-")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _apply(self, document, text, name="out.docx"):
+        target = os.path.join(self.tmpdir, name + ".in.docx")
+        document.save(target)
+        out = os.path.join(self.tmpdir, name)
+        summary = applier.apply_format(
+            target, "", out,
+            inline_text=text,
+            report_path=os.path.join(self.tmpdir, name + ".report.json"))
+        self.assertTrue(summary["ok"], summary)
+        return summary, docx.Document(out)
+
+    def test_br_only_and_space_only_paragraphs_are_removed(self):
+        document = docx.Document()
+        document.add_paragraph("第一段正文")
+        document.add_paragraph().add_run().add_break()
+        document.add_paragraph("第二段正文")
+        document.add_paragraph("   ")
+        run = document.add_paragraph().add_run()
+        run.add_break()
+        run.add_break()
+        document.add_paragraph("第三段正文")
+        wrapped = document.add_paragraph()
+        wrapped.add_run("第一行").add_break()
+        wrapped.add_run("第二行")
+
+        summary, after = self._apply(
+            document, "清理：删除空段落\n正文：宋体 小四 1.5倍行距\n")
+        self.assertEqual([p.text for p in after.paragraphs],
+                         ["第一段正文", "第二段正文", "第三段正文", "第一行\n第二行"])
+        self.assertEqual(summary["cleanup"]["paragraphs_removed"], 3)
+        # a soft return inside real text is content and must survive
+        self.assertEqual(len(list(after.paragraphs[-1]._p.iter(qn("w:br")))), 1)
+
+    def test_page_break_paragraph_is_protected(self):
+        document = docx.Document()
+        document.add_paragraph("前")
+        document.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
+        document.add_paragraph("后")
+
+        _summary, after = self._apply(
+            document, "清理：删除空段落\n正文：宋体 小四\n")
+        self.assertEqual(len(after.paragraphs), 3)
+        breaks = list(after.paragraphs[1]._p.iter(qn("w:br")))
+        self.assertEqual(len(breaks), 1)
+        self.assertEqual(breaks[0].get(qn("w:type")), "page")
+
+    def test_spacing_is_zeroed_at_xml_level_and_line_spacing_survives(self):
+        document = docx.Document()
+        first = document.add_paragraph("正文一")
+        spacing = first._p.get_or_add_pPr().get_or_add_spacing()
+        spacing.set(qn("w:beforeLines"), "500")
+        spacing.set(qn("w:afterLines"), "500")
+        spacing.set(qn("w:beforeAutospacing"), "1")
+        spacing.set(qn("w:afterAutospacing"), "1")
+        document.add_paragraph("正文二")
+
+        _summary, after = self._apply(
+            document, "清理：删除空段落\n正文：宋体 小四 1.5倍行距 段前 0 磅 段后 0 磅\n")
+        for paragraph in after.paragraphs:
+            pPr = paragraph._p.pPr
+            spacing = pPr.find(qn("w:spacing"))
+            self.assertIsNotNone(spacing)
+            self.assertEqual(spacing.get(qn("w:before")), "0")
+            self.assertEqual(spacing.get(qn("w:after")), "0")
+            # line-based / automatic spacing from the original doc must be gone
+            self.assertIsNone(spacing.get(qn("w:beforeLines")))
+            self.assertIsNone(spacing.get(qn("w:afterLines")))
+            self.assertIsNone(spacing.get(qn("w:beforeAutospacing")))
+            self.assertIsNone(spacing.get(qn("w:afterAutospacing")))
+            # rebuilding the node must not wipe the 1.5x line spacing
+            self.assertEqual(spacing.get(qn("w:line")), "360")
+            self.assertEqual(spacing.get(qn("w:lineRule")), "auto")
+            ctx = pPr.find(qn("w:contextualSpacing"))
+            self.assertIsNotNone(ctx)
+            self.assertEqual(ctx.get(qn("w:val")), "0")
+
+
+class TestFragmentCleanup(unittest.TestCase):
+    """Formula fragments must survive cleanup and merge back into one paragraph."""
+
+    def test_equals_and_code_symbols_survive_markdown_cleanup(self):
+        clean = cleaner()
+        for text in ("C=A×B", "=", "_mm256_*", "__m256",
+                     "std::chrono::high_resolution_clock", "串行算法 1.00x \\"):
+            self.assertEqual(clean.clean(text)[0], text, text)
+        # real markdown emphasis still goes away
+        self.assertEqual(clean.clean("这是 **加粗** 与 _斜体_ 测试")[0],
+                         "这是 加粗 与 斜体 测试")
+
+    def test_fragment_merge_end_to_end(self):
+        tmpdir = tempfile.mkdtemp(prefix="wfa-frag-")
+        try:
+            target = os.path.join(tmpdir, "fragments.docx")
+            document = docx.Document()
+            for text in ("实验报告", "一、 问题描述",
+                         "矩阵乘法的基础运算为 ", "C", "=", "A", "×", "B",
+                         "C=A×B，理论时间复杂度为 ", "O", "(", "n", "3", ")",
+                         "O(n ", "3", " )。本实验实现了四种版本：",
+                         "后续内容。"):
+                document.add_paragraph(text)
+            document.save(target)
+
+            presets = os.path.join(tmpdir, "presets")
+            os.makedirs(presets, exist_ok=True)
+            with open(os.path.join(presets, "碎片预设.txt"), "w", encoding="utf-8") as handle:
+                handle.write(
+                    "清理：碎片\n"
+                    "结构预处理：编号正则\n"
+                    "标题1：黑体 四号\n"
+                    "正文：宋体 小四\n")
+
+            out = os.path.join(tmpdir, "fragments-out.docx")
+            summary = applier.apply_format(
+                target, "preset:碎片预设", out,
+                report_path=os.path.join(tmpdir, "fragments.report.json"),
+                presets_dir=presets)
+            self.assertTrue(summary["ok"], summary)
+            self.assertTrue(summary["text_unchanged"], summary)
+
+            with open(summary["report_json"], "r", encoding="utf-8") as handle:
+                report = json.load(handle)
+            block = report["cleanup"]["fragment_merge"]
+            self.assertTrue(block["applied"])
+            self.assertGreater(block["paragraphs_merged"], 0)
+            self.assertGreaterEqual(block["duplicates_dropped"], 5)
+
+            after = docx.Document(out)
+            texts = [p.text for p in after.paragraphs]
+            merged = ("矩阵乘法的基础运算为 C=A×B，理论时间复杂度为 "
+                      "O(n3)。本实验实现了四种版本：")
+            self.assertIn(merged, texts)
+            for fragment in ("C", "=", "A", "×", "B", "O", "(", "n", "3", ")"):
+                self.assertNotIn(fragment, texts)
+            self.assertNotIn(" )。本实验实现了四种版本：", texts)
+            # the sentence tail must not become a blue Heading 3
+            self.assertFalse(any(p.style.name.lower().startswith("heading3")
+                                 for p in after.paragraphs))
+            merged_paragraph = [p for p in after.paragraphs if p.text == merged][0]
+            self.assertEqual(merged_paragraph.style.name, "Normal")
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 if __name__ == "__main__":

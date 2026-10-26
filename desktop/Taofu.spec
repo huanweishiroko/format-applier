@@ -21,7 +21,7 @@
   为基准，只有**只读资源**才走 `_MEIPASS`：`presets/` 落在这里
   （`_MEIPASS/presets`），插件 `presets.py` 的 `PLUGIN_ROOT` 同样推算成 `_MEIPASS`。
 * **`.env` 的落点**：`config.ENV_PATH` = **exe 同级 `.env`**（老用户兼容用）。
-  新用户直接在软件「设置 → API 配置」里填，写 `%APPDATA%\Taofu\config.json`。
+  新用户直接在软件「设置 → API 配置」里填，写 `%APPDATA%\\Taofu\\config.json`。
   `.env.example` 的主副本由 build_finish.py 放到 **exe 同级**；spec 这里再往
   `_MEIPASS/.env.example` 铺一份，只是为了旧版路径下也能看到模板（向后兼容）。
   **绝不打包 desktop/.env 本体**——那会把开发机的真实 API key 一起发出去；
@@ -142,6 +142,10 @@ exe = EXE(  # noqa: F821 - EXE 由 PyInstaller 注入
     strip=False,
     upx=False,          # UPX 压缩极易触发杀毒误报，明确关闭
     console=False,      # 无控制台窗口；CLI 分支靠管道 + 标准流重定向工作
+    # 普通权限（asInvoker）。绝不能设成 True：管理员运行时 Windows 的 UIPI
+    # 会让资源管理器拖入的文件失效，普通用户无法接受。配置写入已改为
+    # %APPDATA% → %LOCALAPPDATA% → ~/.taofu → %TEMP% 逐级降级，不需要提权。
+    uac_admin=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
